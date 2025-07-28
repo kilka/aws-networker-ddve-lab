@@ -45,12 +45,31 @@ setup_ssh_keys() {
     echo -e "${YELLOW}Setting up SSH keys...${NC}"
     
     if [ -f "${KEY_PATH}" ]; then
-        echo -e "${GREEN}✓ SSH key already exists at ${KEY_PATH}${NC}\n"
+        echo -e "${GREEN}✓ SSH key already exists at ${KEY_PATH}${NC}"
+        # Check if PEM version exists
+        if [ ! -f "${KEY_PATH}.pem" ]; then
+            echo -e "${YELLOW}Creating PEM format key for Windows password decryption...${NC}"
+            # Convert existing key to PEM format
+            cp "${KEY_PATH}" "${KEY_PATH}.tmp"
+            ssh-keygen -p -m PEM -f "${KEY_PATH}.tmp" -N "" >/dev/null 2>&1
+            mv "${KEY_PATH}.tmp" "${KEY_PATH}.pem"
+            chmod 600 "${KEY_PATH}.pem"
+            echo -e "${GREEN}✓ PEM format key created${NC}"
+        fi
+        echo
     else
+        # Generate new RSA key
         ssh-keygen -t rsa -b 4096 -f "${KEY_PATH}" -N "" -C "aws-networker-lab-key" >/dev/null 2>&1
         chmod 600 "${KEY_PATH}"
         chmod 644 "${KEY_PATH}.pub"
-        echo -e "${GREEN}✓ SSH key pair generated successfully${NC}\n"
+        
+        # Create PEM format copy for Windows password decryption
+        cp "${KEY_PATH}" "${KEY_PATH}.pem"
+        ssh-keygen -p -m PEM -f "${KEY_PATH}.pem" -N "" >/dev/null 2>&1
+        chmod 600 "${KEY_PATH}.pem"
+        
+        echo -e "${GREEN}✓ SSH key pair generated successfully${NC}"
+        echo -e "${GREEN}✓ PEM format key created for Windows password decryption${NC}\n"
     fi
 }
 
@@ -73,7 +92,7 @@ check_aws_credentials() {
 
 # Function to detect public IP
 detect_public_ip() {
-    echo -e "${YELLOW}Detecting your public IP address...${NC}"
+    echo -e "${YELLOW}Detecting your public IP address...${NC}" >&2
     
     local ip=""
     
@@ -86,13 +105,13 @@ detect_public_ip() {
     done
     
     if [ -z "$ip" ]; then
-        echo -e "${RED}✗ Could not detect public IP address${NC}"
-        echo -e "Please enter your IP manually or use 0.0.0.0/0 (less secure)"
+        echo -e "${RED}✗ Could not detect public IP address${NC}" >&2
+        echo -e "Please enter your IP manually or use 0.0.0.0/0 (less secure)" >&2
         read -p "Enter IP address (or press Enter for 0.0.0.0/0): " ip
         ip=${ip:-"0.0.0.0"}
     fi
     
-    echo -e "${GREEN}✓ Public IP detected: ${ip}${NC}\n"
+    echo -e "${GREEN}✓ Public IP detected: ${ip}${NC}\n" >&2
     echo "$ip"
 }
 
@@ -126,8 +145,8 @@ aws_region = "us-east-1"
 project_name = "aws-networker-lab"
 environment  = "dev"
 
-# Cost optimization - using spot instances
-use_spot_instances = true
+# Cost optimization - spot instances disabled by default (matching variables.tf)
+use_spot_instances = false
 spot_price = "0.6"
 
 # Marketplace AMIs (DDVE and NetWorker)
@@ -139,17 +158,17 @@ networker_ami_mapping = {
   "us-east-1" = "ami-08560ec5891de83bd"
 }
 
-# Instance types (cost-optimized)
+# Instance types (matching variables.tf defaults)
 instance_types = {
-  networker_server = "t3.medium"
-  ddve            = "t3.xlarge"
+  networker_server = "m5.xlarge"
+  ddve            = "m5.xlarge"
   linux_client    = "t3.small"
   windows_client  = "t3.small"
 }
 
-# Storage sizes (minimal for lab)
+# Storage sizes (matching variables.tf defaults)
 storage_sizes = {
-  networker_server = 50
+  networker_server = 126
   ddve            = 250
   linux_client    = 30
   windows_client  = 30

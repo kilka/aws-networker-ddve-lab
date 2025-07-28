@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 TERRAFORM_DIR="$PROJECT_ROOT/terraform"
 ANSIBLE_DIR="$PROJECT_ROOT/ansible"
-KEY_PATH="$PROJECT_ROOT/aws_key"
+KEY_PATH="$PROJECT_ROOT/aws_key.pem"
 INVENTORY_FILE="$ANSIBLE_DIR/inventory/dynamic_inventory.json"
 
 # Set AWS region (default to us-east-1)  

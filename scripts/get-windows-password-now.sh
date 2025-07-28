@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 TERRAFORM_DIR="$PROJECT_ROOT/terraform"
-KEY_PATH="$PROJECT_ROOT/aws_key"
+KEY_PATH="$PROJECT_ROOT/aws_key.pem"
 
 # Set AWS region (default to us-east-1)
 export AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}

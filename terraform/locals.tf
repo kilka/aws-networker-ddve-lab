@@ -12,17 +12,9 @@ locals {
   )
 
   # AMI mappings using variables
-  ddve_ami_map = {
-    "us-east-1"      = var.marketplace_ami_ddve
-    "us-west-2"      = "ami-PLACEHOLDER-DDVE-USW2"
-    "eu-west-1"      = "ami-PLACEHOLDER-DDVE-EUW1"
-    "ap-southeast-1" = "ami-PLACEHOLDER-DDVE-APSE1"
-  }
+  ddve_ami_map = var.ddve_ami_mapping
 
-  networker_ami_map = {
-    "us-east-1" = var.marketplace_ami_networker
-    "us-west-2" = "ami-PLACEHOLDER-NETWORKER-USW2"
-  }
+  networker_ami_map = var.networker_ami_mapping
 
 
   # Network configuration constants
