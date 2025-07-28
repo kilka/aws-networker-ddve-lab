@@ -1,0 +1,80 @@
+---
+- name: Check if NetWorker client is already installed
+  win_stat:
+    path: "{{ networker_windows_install_dir }}"
+  register: networker_installed
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Create temp directory
+  win_file:
+    path: C:\temp
+    state: directory
+  when: not networker_installed.stat.exists
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Copy NetWorker client package
+  win_copy:
+    src: "{{ networker_windows_package }}"
+    dest: "C:\\temp\\{{ networker_windows_package }}"
+  when: not networker_installed.stat.exists
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Install NetWorker client
+  win_package:
+    path: "C:\\temp\\{{ networker_windows_package }}"
+    arguments: '/s /v"/qn INSTALLDIR=\"{{ networker_windows_install_dir }}\""'
+    state: present
+  when: not networker_installed.stat.exists
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Clean up installer
+  win_file:
+    path: "C:\\temp\\{{ networker_windows_package }}"
+    state: absent
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Ensure NetWorker service is started
+  win_service:
+    name: "{{ networker_windows_service }}"
+    start_mode: auto
+    state: started
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Configure Windows Firewall for NetWorker TCP
+  win_firewall_rule:
+    name: NetWorker Client TCP
+    localport: 7937-7938,8080-8083,9090-9093
+    action: allow
+    direction: in
+    protocol: tcp
+    state: present
+    enabled: yes
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Configure Windows Firewall for NetWorker UDP
+  win_firewall_rule:
+    name: NetWorker Client UDP
+    localport: 7937-7938
+    action: allow
+    direction: in
+    protocol: udp
+    state: present
+    enabled: yes
+  tags:
+    - install_agent
+    - networker_client
+

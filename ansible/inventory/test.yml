@@ -1,0 +1,31 @@
+---
+# Test inventory for individual component testing
+# Usage: ansible-playbook playbooks/site.yml -i inventory/test.yml --tags ddve
+all:
+  children:
+    ddve_systems:
+      hosts:
+        ddve-test:
+          ansible_host: 34.234.218.245
+          ansible_user: admin
+          ansible_connection: local
+      vars:
+        ddve_username: "sysadmin"
+        ddve_password: "Changeme123!"
+        ddve_passphrase: "Changeme123!"
+        
+    # Placeholder groups for complete inventory structure
+    networker_servers:
+      hosts: {}
+    linux_clients:
+      hosts: {}
+    windows_clients:
+      hosts: {}
+      
+  vars:
+    # Test environment variables
+    s3_bucket: "aws-networker-lab-ddve-cloud-tier-665774580443"
+    ddboost_user: "networker"
+    ddboost_password: "Changeme123!"
+    storage_unit_name: "NetWorker_SU"
+    aws_region: "us-east-1"

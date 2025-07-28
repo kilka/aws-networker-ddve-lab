@@ -1,0 +1,152 @@
+---
+# Consolidated Linux NetWorker agent installation
+# Works with both modern Ansible (dnf/systemd modules) and older systems (shell commands)
+
+- name: Check if NetWorker client is already installed
+  stat:
+    path: "{{ networker_linux_install_dir }}"
+  register: networker_installed
+  tags:
+    - install_agent
+    - networker_client
+
+# Use package manager modules when available (Python 3.6+ on managed nodes)
+- block:
+    - name: Install required dependencies for NetWorker client (using dnf module)
+      dnf:
+        name:
+          - ncurses-libs
+          - ncurses-compat-libs
+        state: present
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version | int >= 8
+
+    - name: Install required dependencies for NetWorker client (using yum module)
+      yum:
+        name:
+          - ncurses-libs
+          - ncurses-compat-libs
+        state: present
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version | int < 8
+
+    - name: Copy NetWorker client package
+      copy:
+        src: "{{ networker_linux_package }}"
+        dest: "/tmp/{{ networker_linux_package }}"
+        mode: '0644'
+
+    - name: Install NetWorker client package (using dnf module)
+      dnf:
+        name: "/tmp/{{ networker_linux_package }}"
+        state: present
+        disable_gpg_check: yes
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version | int >= 8
+
+    - name: Install NetWorker client package (using yum module)
+      yum:
+        name: "/tmp/{{ networker_linux_package }}"
+        state: present
+        disable_gpg_check: yes
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version | int < 8
+
+  when: not networker_installed.stat.exists and ansible_python.version.major >= 3
+  tags:
+    - install_agent
+    - networker_client
+
+# Fallback to shell commands for older systems or Python 2
+- block:
+    - name: Install required dependencies for NetWorker client (using shell)
+      shell: yum install -y ncurses-libs ncurses-compat-libs
+      args:
+        warn: false
+
+    - name: Copy NetWorker client package
+      copy:
+        src: "{{ networker_linux_package }}"
+        dest: "/tmp/{{ networker_linux_package }}"
+        mode: '0644'
+
+    - name: Install NetWorker client package (using shell)
+      shell: rpm -ivh "/tmp/{{ networker_linux_package }}" || true
+      args:
+        warn: false
+
+  when: not networker_installed.stat.exists and ansible_python.version.major < 3
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Clean up package file
+  file:
+    path: "/tmp/{{ networker_linux_package }}"
+    state: absent
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Create NetWorker directories if missing
+  file:
+    path: /nsr/res
+    state: directory
+    mode: '0755'
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Configure NetWorker client
+  template:
+    src: nsr_client.conf.j2
+    dest: /nsr/res/nsr_client.conf
+    mode: '0644'
+  tags:
+    - install_agent
+    - networker_client
+
+# Service management with fallback
+- name: Start and enable NetWorker service (using systemd module)
+  systemd:
+    name: "{{ networker_linux_service }}"
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  when: ansible_service_mgr == "systemd"
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Start and enable NetWorker service (using shell for older systems)
+  shell: |
+    systemctl daemon-reload
+    systemctl enable {{ networker_linux_service }} || true
+    systemctl start {{ networker_linux_service }} || true
+  args:
+    warn: false
+  when: ansible_service_mgr != "systemd"
+  tags:
+    - install_agent
+    - networker_client
+
+# Firewall configuration (if firewalld is present)
+- name: Check if firewalld is running
+  shell: systemctl is-active firewalld || echo "inactive"
+  register: firewalld_status
+  changed_when: false
+  tags:
+    - install_agent
+    - networker_client
+
+- name: Open firewall ports for NetWorker
+  firewalld:
+    port: "{{ item }}"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  loop:
+    - 7937-7938/tcp
+    - 7937-7938/udp
+    - 8080-8083/tcp
+    - 9090-9093/tcp
+  when: firewalld_status.stdout == "active"
+  tags:
+    - install_agent
+    - networker_client

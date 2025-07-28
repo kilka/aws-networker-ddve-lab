@@ -1,0 +1,37 @@
+# NetWorker Server Configuration
+# Managed by Ansible
+
+# Server Information
+server name = {{ ansible_hostname }}
+server network interface = {{ ansible_default_ipv4.address }}
+
+# Authentication
+auth methods = nsrauth,oldauth
+nsrauth security = strong
+
+# Performance Settings
+parallelism = 64
+server parallelism = 32
+client retries = 2
+save session distribution = max sessions
+
+# Logging
+log default level = 3
+log path = /nsr/logs
+
+# Database Settings
+db vendor = PostgreSQL
+db home = /var/lib/pgsql
+
+# Port Configuration
+service ports = 7937-9936
+nsrmmd control timeout = 60
+nsrmmd polling interval = 2
+
+# Storage Node Settings
+storage node affinity = yes
+max storage nodes = 32
+
+# Index Settings
+index size = 2GB
+journal size = 1GB

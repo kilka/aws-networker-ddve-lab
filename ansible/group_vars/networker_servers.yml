@@ -1,0 +1,14 @@
+---
+# NetWorker Server specific variables
+
+# NetWorker VE - use Python 2 (compatible with Ansible)
+ansible_python_interpreter: /usr/bin/python2
+
+# NetWorker VE uses 'admin' user, not 'ec2-user'
+ansible_user: admin
+
+# NetWorker VE may not need sudo elevation
+ansible_become: false
+
+# NetWorker specific configuration
+networker_server_name: "networker.networker.lab"

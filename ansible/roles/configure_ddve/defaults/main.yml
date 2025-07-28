@@ -1,0 +1,20 @@
+---
+# DDVE Configuration Defaults
+
+# DDVE System Configuration
+ddve_passphrase: "Changeme123!"
+
+# DD Boost Configuration
+ddboost_user: "networker"
+ddboost_password: "Changeme123!"
+storage_unit_name: "networker-lab-server-01"
+
+# S3 Configuration (will be passed from terraform)
+# s3_bucket: "{{ terraform_s3_bucket }}"
+
+# Network Configuration (DHCP by default, no changes needed)
+# License is automatically applied from AWS Marketplace
+
+# Authentication (DDVE credentials)
+ddve_username: "sysadmin"
+ddve_password: "Changeme123!"

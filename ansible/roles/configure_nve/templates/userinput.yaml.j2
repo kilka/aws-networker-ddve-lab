@@ -1,0 +1,52 @@
+# user input configuration file
+---
+javadir: /opt/nre/java/latest
+tomcat_user: nsrtomcat
+tomcat_data: /nsr/authc/data
+tomcat_keystore: /nsr/authc/conf/authc.keystore
+tomcat_keystore_password: {{ nve_default_password }}
+tomcat_alias_password: changeit
+trust_store_password: trustme
+saml_alias_password: changeit
+authc_admin_password: {{ nve_authc_admin_password }}
+
+authc_hostname: '{{ networker_server_hostname }}'
+authc_port: 9090
+authc_scripts: '/opt/nsr/authc-server/scripts'
+
+download_pub_key: Download
+attach_dd_with_cert: true
+
+datadomain_host: "{{ ddve_hostname }}"
+storage_path: "{{ ddve_storage_unit }}"
+ddboost_user: "{{ ddve_ddboost_user }}"
+ddboost_user_pwd: "{{ ddve_default_password }}"
+ddboost_user_pwd_cf: "{{ ddve_default_password }}"
+new_ddboost_user: false
+
+datadomain_sysadmin: "sysadmin"
+datadomain_sysadmin_pwd: "{{ ddve_default_password }}"
+add_datadomain_config: false
+
+networker_webserver_user: nobody
+networker_webserver_group: nobody
+networker_webserver_port: 9000
+networker_console_port: 9001
+networker_console_database: /nsr/nmc/nmcdb
+language_packages: None
+
+networker_database_user: postgres
+networker_database_port: 5432
+
+snmp_string: public
+
+networker_install_dir: /usr/sbin
+networker_mc_dir: /opt/lgtonmc/bin
+
+rootid_password: {{ nve_rootid_password }}
+admin_password_os: {{ nve_default_password }}
+root_password_os: {{ nve_default_password }}
+
+install_avpasswd: false
+timezone_name: "America/New_York"
+nve_as_storage_node: false

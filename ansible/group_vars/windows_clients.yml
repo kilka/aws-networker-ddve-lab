@@ -1,0 +1,28 @@
+---
+# Windows client specific variables
+
+# WinRM connection settings
+ansible_connection: winrm
+ansible_winrm_transport: ntlm
+ansible_winrm_server_cert_validation: ignore
+# Try HTTP first (port 5985), fallback to HTTPS (port 5986) if needed
+ansible_port: 5985
+ansible_winrm_scheme: http
+
+# Connection timeouts (only connection_timeout is supported)
+ansible_winrm_connection_timeout: 60
+
+# Fallback to HTTPS if HTTP fails (can be overridden in inventory)
+# ansible_port: 5986
+# ansible_winrm_scheme: https
+
+# Authentication - password retrieved from EC2
+ansible_user: Administrator
+# Use EC2 instance metadata to get the admin password
+# This should be set in the inventory or via --extra-vars
+ansible_password: "{{ ansible_password | default(hostvars[inventory_hostname]['ansible_password']) | default('') }}"
+
+# Windows specific settings
+ansible_shell_type: powershell
+# Note: Don't set ansible_become_method or ansible_become_user for Windows
+# as it causes conflicts with WinRM connections

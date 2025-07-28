@@ -1,0 +1,71 @@
+# AWS Credentials and Keys
+aws_key*
+*.pem
+*.key
+*.pub
+!aws_key.pub.example
+
+# Terraform State Files
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+*.auto.tfvars
+
+# Ansible
+*.retry
+ansible/inventory/hosts.ini
+ansible/inventory/dynamic_inventory.json
+
+# Environment Variables
+.env
+.env.*
+
+# IDE and OS Files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Temporary Files
+tmp/
+temp/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+venv/
+env/
+
+# Backup Files
+*.bak
+*.backup
+
+# Test Results
+test-results/
+coverage/
+
+# Documentation Build
+docs/_build/
+
+# Claude Files
+.claude/
+claude.json
+.claude_chat_history
+.claude_memory
+*.claude
+claude_artifacts/
+.claudeconfig
+CLAUDE.md
+
+# Old/archived files
+old/

@@ -1,0 +1,3 @@
+---
+# OS-specific variables for RedHat-based systems
+# These variables are loaded automatically when installing on RedHat/CentOS/RHEL

@@ -1,0 +1,19 @@
+---
+# NetWorker client package filenames
+networker_linux_package: "lgtoclnt-19.4.0.2-1.x86_64.rpm"
+networker_windows_package: "lgtoclnt-19.4.0.3_x64.exe"
+
+# NetWorker client version
+networker_client_version: "19.4.0"
+
+# Installation directories
+networker_linux_install_dir: "/opt/nsr"
+networker_windows_install_dir: "C:\\Program Files\\EMC NetWorker"
+
+# Service names
+networker_linux_service: "networker"
+networker_windows_service: "nsrexecd"
+
+# Configuration
+networker_server_hostname: "{{ groups['networker_servers'][0] }}"
+networker_server_ip: "{{ hostvars[groups['networker_servers'][0]]['ansible_default_ipv4']['address'] | default('10.0.1.10') }}"

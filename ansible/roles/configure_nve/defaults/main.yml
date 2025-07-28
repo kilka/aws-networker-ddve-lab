@@ -1,0 +1,23 @@
+---
+# NetWorker VE Configuration Defaults
+
+# NetWorker VE password requirements (different fields have different requirements)
+nve_rootid_password: "Changeme123"        # Must be alphanumeric only
+nve_authc_admin_password: "Changeme123@"   # Must be complex (9+ chars, upper, lower, number, special)
+nve_default_password: "Changeme123"        # General password for other fields
+
+# NetWorker server hostname
+networker_server_hostname: "networker-lab-server-01.{{ route53_zone }}"
+
+# DDVE connection details
+ddve_hostname: "ddve.{{ route53_zone }}"
+ddve_storage_unit: "networker-lab-server-01"
+ddve_ddboost_user: "networker"
+ddve_default_password: "Changeme123!"
+
+# Route53 private zone
+route53_zone: "networker.lab"
+
+# Data Domain pool configuration
+dd_volume_pool: "Data Domain Default"
+pool_name: "gold"

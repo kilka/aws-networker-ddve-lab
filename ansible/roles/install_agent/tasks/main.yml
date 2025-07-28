@@ -1,0 +1,55 @@
+---
+- name: Check if NetWorker agent is already installed (Linux)
+  systemd:
+    name: networker
+  register: linux_agent_check
+  ignore_errors: yes
+  failed_when: false
+  when: ansible_os_family in ["RedHat", "Debian"]
+
+- name: Check if NetWorker agent is already installed (Windows)
+  win_service:
+    name: NetWorker
+  register: windows_agent_check
+  ignore_errors: yes
+  failed_when: false
+  when: ansible_os_family == "Windows"
+
+- name: Set NetWorker agent installation status
+  set_fact:
+    agent_already_installed: >-
+      {{ 
+        (ansible_os_family in ["RedHat", "Debian"] and linux_agent_check.status is defined and linux_agent_check.status.ActiveState == 'active') or
+        (ansible_os_family == "Windows" and windows_agent_check.exists is defined and windows_agent_check.exists and windows_agent_check.state == 'running')
+      }}
+
+- name: Display NetWorker agent status
+  debug:
+    msg:
+      - "🔍 NetWorker Agent Status Check:"
+      - "   OS Family: {{ ansible_os_family }}"
+      - "   Already Installed: {{ 'Yes' if agent_already_installed else 'No' }}"
+      - "   {% if agent_already_installed %}✅ NetWorker agent is running - skipping installation{% endif %}"
+      - "   {% if not agent_already_installed %}🔄 NetWorker agent needs installation - proceeding{% endif %}"
+
+- name: Include OS-specific variables
+  include_vars: "{{ ansible_os_family }}.yml"
+  ignore_errors: yes
+  when: not agent_already_installed
+
+- name: Install NetWorker agent on Linux
+  include_tasks: linux.yml
+  when: not agent_already_installed and ansible_os_family in ["RedHat", "Debian"]
+
+- name: Install NetWorker agent on Windows
+  include_tasks: windows.yml
+  when: not agent_already_installed and ansible_os_family == "Windows"
+
+- name: Display agent installation summary
+  debug:
+    msg:
+      - "💻 NetWorker Agent Installation Summary:"
+      - "   OS: {{ ansible_os_family }}"
+      - "   Status: {{ '✅ Already installed (service running)' if agent_already_installed else '🔄 Newly installed' }}"
+      - "   Service: {{ '✅ Active' if agent_already_installed else '🔄 Started and enabled' }}"
+      - "   🚀 NetWorker agent ready for backup operations"

@@ -1,0 +1,12 @@
+---
+- name: restart networker
+  systemd:
+    name: networker
+    state: restarted
+  when: ansible_os_family != "Windows"
+
+- name: restart networker windows
+  win_service:
+    name: NetWorker
+    state: restarted
+  when: ansible_os_family == "Windows"

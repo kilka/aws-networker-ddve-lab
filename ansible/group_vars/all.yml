@@ -1,0 +1,17 @@
+---
+# Global variables for AWS NetWorker Lab
+
+# AWS Configuration
+aws_region: "{{ lookup('env', 'AWS_REGION') | default('us-east-1') }}"
+
+# S3 Bucket for DDVE (will be set by Terraform output)
+s3_bucket: "{{ terraform_outputs.s3_bucket_name.value | default('aws-networker-lab-ddve-cloud-tier-665774580443') }}"
+
+# DDVE Configuration - Using constants from all/constants.yml
+ddve_passphrase: "{{ default_ddve_passphrase }}"
+ddboost_user: "networker"
+ddboost_password: "{{ default_ddboost_password }}"
+storage_unit_name: "networker-lab-server-01"
+
+# NetWorker Configuration - Using constants from all/constants.yml
+networker_admin_password: "{{ default_admin_password }}"

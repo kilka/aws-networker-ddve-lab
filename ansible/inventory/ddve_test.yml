@@ -1,0 +1,33 @@
+---
+# DDVE Test Inventory - Created for testing deployed DDVE
+all:
+  children:
+    ddve_systems:
+      hosts:
+        networker-lab-ddve-01.networker.lab:
+          ansible_host: 44.196.209.23
+          ansible_user: admin
+          ansible_connection: local
+          instance_id: i-0c52628567c45179e
+          private_ip: 10.0.1.240
+      vars:
+        ddve_username: "sysadmin"
+        ddve_password: "Changeme123!"  # Already changed from instance ID
+        ddve_initial_password: "{{ instance_id }}"  # Keep for reference
+        ddve_passphrase: "Changeme123!"
+        
+    # Empty groups for playbook compatibility
+    networker_servers:
+      hosts: {}
+    linux_clients:
+      hosts: {}
+    windows_clients:
+      hosts: {}
+      
+  vars:
+    s3_bucket: "aws-networker-lab-ddve-cloud-tier-665774580443"
+    ddboost_user: "networker"
+    ddboost_password: "Changeme123!"
+    storage_unit_name: "NetWorker_SU"
+    aws_region: "us-east-1"
+    internal_domain_name: "networker.lab"

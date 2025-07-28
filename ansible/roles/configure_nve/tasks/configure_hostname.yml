@@ -1,0 +1,85 @@
+---
+# NetWorker VE Hostname Configuration
+# Must be done before taking any backups per Dell EMC documentation
+
+- name: Configure NetWorker VE hostname (Required before backups)
+  block:
+    - name: Debug - Show password being used
+      debug:
+        msg:
+          - "🔑 Password Configuration:"
+          - "   networker_current_sudo_password: {{ networker_current_sudo_password | default('Not set') }}"
+          - "   networker_admin_password variable: {{ networker_admin_password | default('Not set') }}"
+          - "   Private IP: {{ private_ip }}"
+          - "   Using password: {{ networker_current_sudo_password | default(private_ip) }}"
+
+    - name: Update /etc/hosts with NetWorker hostname
+      raw: |
+        echo '{{ networker_current_sudo_password | default(private_ip) }}' | sudo -S bash -c '
+        # Remove any existing entries for our IP address (including AWS internal)
+        sed -i "/^{{ private_ip }}/d" /etc/hosts
+        # Add only our correct entry
+        echo "{{ private_ip }} networker-lab-server-01.{{ internal_domain_name | default("networker.lab") }} networker-lab-server-01 networker" >> /etc/hosts
+        '
+      register: hosts_update
+
+    - name: Configure /etc/resolv.conf
+      raw: |
+        echo '{{ networker_current_sudo_password | default(private_ip) }}' | sudo -S bash -c '
+        cat > /etc/resolv.conf << EOF
+        search {{ internal_domain_name | default("networker.lab") }}
+        nameserver 10.0.0.2
+        nameserver 169.254.169.253
+        EOF
+        '
+      register: resolv_update
+
+    - name: Set hostname in /etc/HOSTNAME
+      raw: |
+        echo '{{ networker_current_sudo_password | default(private_ip) }}' | sudo -S bash -c '
+        echo "networker-lab-server-01.{{ internal_domain_name | default("networker.lab") }}" > /etc/HOSTNAME
+        '
+      register: hostname_file_update
+
+    - name: Set hostname using hostname command
+      raw: |
+        echo '{{ networker_current_sudo_password | default(private_ip) }}' | sudo -S \
+        hostname networker-lab-server-01.{{ internal_domain_name | default("networker.lab") }}
+      register: hostname_set
+
+    - name: Display hostname configuration result
+      debug:
+        msg: "Hostname configured to: networker-lab-server-01.{{ internal_domain_name | default('networker.lab') }}"
+
+    - name: Issue reboot command
+      raw: |
+        echo '{{ networker_current_sudo_password | default(private_ip) }}' | sudo -S bash -c '
+        nohup sh -c "sleep 5 && /sbin/reboot" </dev/null >/dev/null 2>&1 &
+        disown
+        '
+      failed_when: false
+      ignore_errors: yes
+
+- name: Close SSH connection to ensure reboot proceeds
+  meta: reset_connection
+
+- name: Wait for system to come back online
+  wait_for:
+    host: "{{ ansible_host }}"
+    port: 22
+    state: started
+    delay: 20
+    timeout: 600
+  delegate_to: localhost
+
+- name: Verify hostname was properly set
+  raw: hostname -f
+  register: hostname_check
+  retries: 3
+  delay: 10
+  until: hostname_check.rc == 0
+
+- name: Display final hostname
+  debug:
+    msg: "NetWorker VE hostname is now: {{ hostname_check.stdout }}"
+

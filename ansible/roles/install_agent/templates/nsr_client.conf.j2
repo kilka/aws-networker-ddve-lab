@@ -1,0 +1,17 @@
+# NetWorker Client Configuration
+# Managed by Ansible
+
+servers = {{ networker_server_ip }}
+client name = {{ ansible_hostname }}
+aliases = networker-lab-linux-01.{{ route53_zone | default('networker.lab') }}, {{ ansible_fqdn }}
+save set = All
+
+# Security settings
+auth methods = nsrauth,oldauth
+
+# Performance settings
+parallelism = 4
+client retries = 2
+
+# Logging
+log level = 3

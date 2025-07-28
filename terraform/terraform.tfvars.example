@@ -1,0 +1,46 @@
+# AWS NetWorker Lab - Minimal Configuration File
+# 
+# INSTRUCTIONS:
+# 1. Copy this file: cp terraform.tfvars.example terraform.tfvars
+# 2. Set ONLY the admin_ip_cidr variable below
+# 3. All other values have sensible defaults
+
+# ===== REQUIRED CONFIGURATION =====
+# Replace with your public IP address for secure access
+# To find your IP: curl -s https://api.ipify.org
+admin_ip_cidr = "YOUR_IP_ADDRESS/32"  # REQUIRED: e.g., "203.0.113.1/32"
+
+# ===== OPTIONAL CONFIGURATION =====
+# The following have good defaults but can be customized if needed
+
+# AWS Region (default: us-east-1)
+# aws_region = "us-east-1"
+
+# Project name (affects resource naming)
+# project_name = "aws-networker-lab"
+
+# Environment tag
+# environment = "dev"
+
+# Instance types (for cost optimization, you can use smaller instances)
+# instance_types = {
+#   networker_server = "t3.large"   # Minimum recommended: t3.medium
+#   ddve            = "m5.xlarge"   # Minimum recommended: t3.large
+#   linux_client    = "t3.medium"   # Minimum recommended: t3.small
+#   windows_client  = "t3.medium"   # Minimum recommended: t3.small
+# }
+
+# Spot Instances Configuration (for 70-90% cost savings)
+# use_spot_instances = false  # Set to true to enable spot instances
+# spot_price = "0.6"         # Maximum price as percentage of on-demand (0.6 = 60%)
+
+# Marketplace AMIs (required for production use)
+# use_marketplace_amis = true
+# ddve_ami_mapping = {
+#   "us-east-1" = "ami-09e2f4b415eacc1b9"
+# }
+# networker_ami_mapping = {
+#   "us-east-1" = "ami-08560ec5891de83bd"
+# }
+
+# Note: Using smaller instances will reduce costs but may impact performance

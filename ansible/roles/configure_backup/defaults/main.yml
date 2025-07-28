@@ -1,0 +1,6 @@
+---
+networker_admin_password: "Changeme123!"
+ddve_boost_password: "Changeme123!"
+backup_retention_days: 30
+backup_schedule_hour: 22
+backup_schedule_minute: 0

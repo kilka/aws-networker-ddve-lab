@@ -1,0 +1,7 @@
+---
+# DDVE systems use REST API, not SSH
+ansible_connection: local
+ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+# Skip fact gathering since DDVE doesn't support standard SSH commands
+gather_facts: no

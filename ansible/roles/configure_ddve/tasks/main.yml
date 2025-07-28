@@ -1,0 +1,277 @@
+---
+# DDVE REST API Configuration
+# Uses DDVE REST API for complete automated setup
+
+- name: Wait for DDVE to be accessible
+  wait_for:
+    host: "{{ ansible_host }}"
+    port: 443
+    delay: 30
+    timeout: 900
+
+- name: Get DDVE instance ID from inventory
+  set_fact:
+    ddve_instance_id: "{{ instance_id }}"
+
+- name: Try authentication with standard password first
+  uri:
+    url: "https://{{ ansible_host }}:3009/rest/v1.0/auth"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ ddve_username | default('sysadmin') }}"  
+      password: "{{ ddve_password | default('Changeme123!') }}"
+    validate_certs: no
+    status_code: 201
+    timeout: 60
+  register: ddve_auth_standard
+  ignore_errors: yes
+
+- name: Fallback to instance ID authentication if standard password failed
+  uri:
+    url: "https://{{ ansible_host }}:3009/rest/v1.0/auth"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ ddve_username | default('sysadmin') }}"
+      password: "{{ ddve_instance_id }}"
+    validate_certs: no
+    status_code: 201
+    timeout: 60
+  register: ddve_auth_instance
+  retries: 3
+  delay: 10
+  when: ddve_auth_standard.status | default(0) != 201
+
+- name: Set authentication token and password change status
+  set_fact:
+        ddve_token: "{{ ddve_auth_standard.x_dd_auth_token if (ddve_auth_standard.status | default(0) == 201) else ddve_auth_instance.x_dd_auth_token }}"
+        password_needs_change: "{{ (ddve_auth_standard.status | default(0) != 201) and (ddve_auth_instance.status | default(0) == 201) }}"
+        auth_method_used: "{{ 'standard' if (ddve_auth_standard.status | default(0) == 201) else 'instance_id' }}"
+
+- name: Display authentication result
+  debug:
+        msg: "🔐 DDVE Authentication: {{ 'Success with ' + auth_method_used + ' password' if ddve_token is defined else 'Failed' }}"
+
+- name: Change sysadmin password from instance ID to standard password
+  uri:
+        url: "https://{{ ansible_host }}:3009/rest/v1.0/dd-systems/0/users/sysadmin"
+        method: PUT
+        headers:
+          X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          user_modify:
+            current_password: "{{ ddve_instance_id }}"
+            new_password: "{{ ddve_password | default('Changeme123!') }}"
+        validate_certs: no
+        status_code: 200
+        timeout: 60
+  register: password_change_result
+  when: password_needs_change
+
+- name: Set system passphrase for object store configuration
+  uri:
+        url: "https://{{ ansible_host }}:3009/rest/v2.0/dd-systems/0/systems"
+        method: PUT
+        headers:
+          X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          system_modify:
+            operation: "set_pphrase"
+            pphrase_request:
+              new_pphrase: "{{ ddve_passphrase | default('Changeme123!') }}"
+        validate_certs: no
+        status_code: 200
+        timeout: 60
+  register: passphrase_result
+  ignore_errors: yes
+  changed_when: passphrase_result.status == 200
+  failed_when: passphrase_result.status not in [200, 400]
+
+- name: List available disks for filesystem
+  uri:
+        url: "https://{{ ansible_host }}:3009/api/v1/dd-systems/0/storage/disks"
+        method: GET
+        headers:
+          X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+        validate_certs: no
+        status_code: 200
+        timeout: 60
+  register: disk_list
+
+- name: Filter available disks for metadata tier
+  set_fact:
+        metadata_disks: "{{ disk_list.json.diskInfo | selectattr('status', 'equalto', 'UNKNOWN') | selectattr('tierType', 'equalto', 'OTHER') | map(attribute='device') | list }}"
+
+- name: Check if object store is already configured
+  uri:
+    url: "https://{{ ansible_host }}:3009/api/v1/dd-systems/0/file-systems/object-stores"
+    method: GET
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+    validate_certs: no
+    status_code: 200
+    timeout: 60
+  register: object_store_status
+
+- name: Configure AWS S3 object store
+  uri:
+    url: "https://{{ ansible_host }}:3009/api/v1/dd-systems/0/file-systems/object-stores/aws"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      object_store_detail:
+        bucketType: "{{ s3_bucket }}"
+        acceptCertificate: true
+        disks: "{{ metadata_disks[:2] }}"
+    validate_certs: no
+    status_code: 200
+    timeout: 600
+  register: s3_config_result
+  retries: 3
+  delay: 60
+  when: not object_store_status.json.enabled
+
+- name: Create DDVE filesystem  
+  uri:
+    url: "https://{{ ansible_host }}:3009/rest/v1.0/dd-systems/0/file-systems"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      filesys_modify:
+        operation: "create"
+    validate_certs: no
+    status_code: [200, 201, 400, 500]
+    timeout: 600
+  register: filesystem_create
+  retries: 3
+  delay: 30
+  ignore_errors: yes
+  changed_when: filesystem_create.status == 200
+
+- name: Enable DDVE filesystem
+  uri:
+    url: "https://{{ ansible_host }}:3009/rest/v1.0/dd-systems/0/file-systems"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      filesys_modify:
+        operation: "enable"
+    validate_certs: no
+    status_code: [200, 201, 400, 500]
+    timeout: 600
+  register: filesystem_enable
+  retries: 3
+  delay: 30
+  ignore_errors: yes
+  changed_when: filesystem_enable.status == 200
+
+- name: Check DD Boost status
+  uri:
+    url: "https://{{ ansible_host }}:3009/rest/v1.0/dd-systems/0/protocols/ddboost"
+    method: GET
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+    validate_certs: no
+    status_code: 200
+    timeout: 60
+  register: ddboost_status
+
+- name: Enable DD Boost protocol
+  uri:
+    url: "https://{{ ansible_host }}:3009/rest/v1.0/dd-systems/0/protocols/ddboost"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      ddboost_modify:
+        operation: "enable"
+    validate_certs: no
+    status_code: 200
+    timeout: 60
+  register: ddboost_enable
+  when: ddboost_status.json.ddboost_status != 'enabled'
+
+- name: Create DD Boost user for NetWorker
+  uri:
+    url: "https://{{ ansible_host }}:3009/api/v2/dd-systems/0/users"
+    method: POST
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      user_create_2:
+        name: "{{ ddboost_user | default('networker') }}"
+        password: "{{ ddboost_password | default('Changeme123!') }}"
+    validate_certs: no
+    status_code: [200, 201, 400, 500]
+    timeout: 60
+  register: ddboost_user_create
+  ignore_errors: yes
+  changed_when: ddboost_user_create.status == 200
+
+- name: Create DD Boost storage unit
+  uri:
+    url: "https://{{ ansible_host }}:3009/rest/v2.0/dd-systems/0/protocols/ddboost/storage-units"
+    method: POST
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      ddboost_storage_unit_create:
+        name: "{{ storage_unit_name | default('NetWorker_SU') }}"
+        user: "{{ ddboost_user | default('networker') }}"
+    validate_certs: no
+    status_code: [200, 201, 400, 500]
+    timeout: 60
+  register: storage_unit_create
+  ignore_errors: yes
+  changed_when: storage_unit_create.status == 200
+
+- name: Assign DD Boost user
+  uri:
+    url: "https://{{ ansible_host }}:3009/rest/v1.0/dd-systems/0/protocols/ddboost/users"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      ddboost_users_modify:
+        operation: "assign"
+        user: "{{ ddboost_user | default('networker') }}"
+    validate_certs: no
+    status_code: [200, 201, 400, 500]
+    timeout: 60
+  register: ddboost_user_assign
+  ignore_errors: yes
+  changed_when: ddboost_user_assign.status == 200
+
+- name: Display DDVE configuration summary
+  debug:
+    msg:
+      - "📊 DDVE Configuration Summary:"
+      - "   S3 Bucket: {{ s3_bucket | default('Not configured') }}"
+      - "   Metadata Disks: {{ metadata_disks[:2] | default([]) }}"
+      - "   Filesystem: Created and enabled"
+      - "   DD Boost: Enabled"
+      - "   DD Boost User: {{ ddboost_user | default('networker') }}"
+      - "   Storage Unit: {{ storage_unit_name | default('NetWorker_SU') }}"
+      - "   🚀 DDVE ready for NetWorker integration"

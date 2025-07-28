@@ -1,0 +1,18 @@
+# NetWorker Client Configuration for Windows
+# Managed by Ansible
+
+servers = {{ hostvars[groups['networker_servers'][0]]['private_ip'] }}
+client name = {{ ansible_hostname }}
+aliases = networker-lab-windows-01.{{ route53_zone | default('networker.lab') }}, {{ ansible_fqdn }}
+save set = All
+
+# Windows specific settings
+VSS = yes
+system state = yes
+
+# Security settings
+auth methods = nsrauth,oldauth
+
+# Performance settings
+parallelism = 4
+client retries = 2

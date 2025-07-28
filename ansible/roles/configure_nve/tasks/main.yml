@@ -1,0 +1,961 @@
+# NetWorker Virtual Edition Configuration
+
+# Python interpreter is set in group_vars/networker_servers.yml to use Python 2
+# But we use raw commands for most tasks to avoid Python dependency issues
+
+- name: Check if NetWorker Server is already configured
+  raw: |
+    systemctl status networker-server 2>&1 || echo "Service not found"
+  register: networker_service_check
+  changed_when: false
+
+- name: Set NetWorker configuration status
+  set_fact:
+    networker_already_configured: "{{ 'active (running)' in (networker_service_check.stdout | default('')) }}"
+
+- name: Display NetWorker configuration status
+  debug:
+    msg:
+      - "🔍 NetWorker Server Status Check:"
+      - "   Already Configured: {{ 'Yes' if networker_already_configured else 'No' }}"
+      - "   {% if networker_already_configured %}✅ NetWorker service is running - skipping configuration tasks{% endif %}"
+      - "   {% if not networker_already_configured %}🔄 NetWorker needs configuration - proceeding with setup{% endif %}"
+
+- block:
+    # Handle authentication with private IP password
+    - name: Authenticate to NetWorker VE
+      include_tasks: authenticate.yml
+      tags:
+        - auth
+        - setup
+
+    # Check if hostname is already configured
+    - name: Check current hostname configuration
+      raw: |
+        echo '{{ networker_current_sudo_password | default(private_ip) }}' | sudo -S hostname -f
+      register: current_hostname_check
+      changed_when: false
+      failed_when: false
+
+    - name: Set hostname configuration status
+      set_fact:
+        hostname_already_configured: "{{ 'networker-lab-server-01.networker.lab' in (current_hostname_check.stdout | default('')) }}"
+
+    - name: Display hostname check results
+      debug:
+        msg:
+          - "🔍 Hostname Configuration Check:"
+          - "   Current hostname: {{ current_hostname_check.stdout | default('Unable to determine') | trim }}"
+          - "   Expected hostname: networker-lab-server-01.networker.lab"
+          - "   Already configured: {{ 'Yes' if hostname_already_configured else 'No' }}"
+
+    # Configure hostname only if not already done
+    - name: Configure NetWorker VE hostname
+      include_tasks: configure_hostname.yml
+      when: not hostname_already_configured
+      tags:
+        - hostname
+        - setup
+
+    # Skip to AVI check if hostname was already configured
+    - name: Check AVI installation status
+      raw: |
+        echo '{{ networker_current_sudo_password | default(private_ip) }}' | sudo -S which avi 2>/dev/null || echo "Not found"
+      register: avi_check
+      changed_when: false
+      when: hostname_already_configured
+
+    - name: Display AVI status when hostname was pre-configured
+      debug:
+        msg:
+          - "✅ Hostname already configured - skipping hostname setup and reboot"
+          - "🔍 AVI CLI Status: {{ 'Installed' if avi_check.stdout | trim != 'Not found' else 'Not installed' }}"
+      when: hostname_already_configured
+
+    # Configure NetWorker using avi-cli
+    - name: Configure NetWorker VE using avi-cli
+      include_tasks: avi_config_simple.yml
+      tags:
+        - avi
+        - setup
+
+    # REST API tasks moved outside this block
+
+  when: not networker_already_configured
+
+# Configure NetWorker via REST API - Always run these tasks
+- name: Initialize commonly used variables
+  set_fact:
+    route53_zone: "{{ route53_zone | default('networker.lab') }}"
+    authc_admin_password: "{{ authc_admin_password | default('Changeme123@') }}"
+    ddve_hostname: "{{ ddve_hostname | default('ddve.networker.lab') }}"
+    ddboost_user: "{{ ddboost_user | default('networker') }}"
+    ddboost_password: "{{ ddboost_password | default('Changeme123!') }}"
+    pool_name: "{{ pool_name | default('gold') }}"
+    dd_volume_pool: "{{ dd_volume_pool | default('Data Domain Default') }}"
+    networker_current_sudo_password: "{{ networker_current_sudo_password | default('Changeme123') }}"
+    ddve_default_password: "{{ ddve_default_password | default('Changeme123!') }}"
+    dd_system_exists: "{{ dd_system_exists | default(false) }}"
+    device_exists: "{{ device_exists | default(false) }}"
+    gold_policy_exists: "{{ gold_policy_exists | default(false) }}"
+    gold_group_exists: "{{ gold_group_exists | default(false) }}"
+  tags:
+    - always
+
+- name: Get DDVE host information
+  set_fact:
+    ddve_host: "{{ hostvars[groups['ddve_systems'][0]]['ansible_host'] }}"
+    ddve_private_ip: "{{ hostvars[groups['ddve_systems'][0]]['private_ip'] }}"
+    ddve_fqdn: "{{ ddve_hostname | default('ddve.' + route53_zone) }}"
+    networker_hostname: "networker-lab-server-01"
+    networker_fqdn: "networker-lab-server-01.{{ route53_zone | default('networker.lab') }}"
+    storage_unit_name: "{{ storage_unit_name | default('networker-lab-server-01') }}"
+  tags:
+    - rest_api
+    - api_test
+
+- name: Test NetWorker API authentication
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/alerts"
+    method: GET
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+    validate_certs: no
+    status_code: [200, 201]
+  register: auth_test
+  delegate_to: localhost
+  tags:
+    - rest_api
+    - api_test
+
+- name: Debug DDVE device information
+  debug:
+    msg:
+      - "📊 DDVE Device Configuration:"
+      - "   DDVE Host: {{ ddve_host }}"
+      - "   DDVE Private IP: {{ ddve_private_ip }}"
+      - "   DDVE FQDN: {{ ddve_fqdn | default('ddve.networker.lab') }}"
+      - "   Storage Unit: {{ storage_unit_name | default('NetWorker_SU') }}"
+      - "   Device Access Info: {{ ddve_fqdn | default('ddve.networker.lab') }}"
+      - "   DD Boost User: {{ ddboost_user | default('networker') }}"
+      - "   DD Boost Password: {{ ddboost_password | default('Changeme123!') }}"
+  tags:
+    - rest_api
+    - api_test
+
+- name: Debug Data Domain system request
+  debug:
+    msg:
+      - "🔍 Data Domain System Request:"
+      - "URL: https://{{ networker_fqdn }}:9090/nwrestapi/v3/global/datadomainsystems"
+      - "Method: POST"
+      - "Auth: administrator / {{ authc_admin_password | default('Changeme123!') }}"
+      - "Request Body:"
+      - "  {"
+      - "    \"name\": \"{{ ddve_fqdn }}\","
+      - "    \"aliases\": [\"{{ ddve_fqdn }}\"],"
+      - "    \"userName\": \"{{ ddboost_user | default('networker') }}\","
+      - "    \"password\": \"{{ ddboost_password | default('Changeme123!') }}\","
+      - "    \"managementPort\": \"3009\""
+      - "  }"
+  tags:
+    - rest_api
+    - api_test
+
+- name: Add Data Domain system to NetWorker
+  when: not (dd_system_exists | default(false))
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/datadomainsystems"
+    method: POST
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "{{ ddve_fqdn }}"
+      aliases: ["{{ ddve_fqdn }}"]
+      userName: "{{ ddboost_user | default('networker') }}"
+      password: "{{ ddboost_password | default('Changeme123!') }}"
+      managementPort: "3009"
+    validate_certs: no
+    status_code: [200, 201, 400]  # 400 means already exists
+  register: dd_system_add
+  delegate_to: localhost
+  ignore_errors: true
+  tags:
+    - rest_api
+    - api_test
+
+- name: Display Data Domain system add results
+  debug:
+    msg:
+      - "📊 Data Domain System Add:"
+      - "   Status: {{ '✅ Added' if dd_system_add.status in [200, 201] else '⚠️  May already exist' if dd_system_add.status == 400 else '❌ Failed' }}"
+      - "   Status Code: {{ dd_system_add.status }}"
+      - "   Response: {{ 'Success' if dd_system_add.status in [200, 201] else 'Already exists' if dd_system_add.status == 400 else 'Failed' }}"
+  when: not (dd_system_exists | default(false)) and dd_system_add is defined
+  tags:
+    - rest_api
+    - api_test
+
+- name: Wait a moment for Data Domain system to be ready
+  pause:
+    seconds: 5
+  when: not (dd_system_exists | default(false)) and (dd_system_add.status | default(0)) in [200, 201]
+  tags:
+    - rest_api
+    - api_test
+
+- name: List existing Data Domain systems
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/datadomainsystems"
+    method: GET
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+    validate_certs: no
+    status_code: [200]
+  register: existing_dd_systems
+  delegate_to: localhost
+  tags:
+    - rest_api
+    - api_test
+
+- name: Debug existing DD systems response
+  debug:
+    msg:
+      - "HTTP Status: {{ existing_dd_systems.status }}"
+      - "Response keys: {{ existing_dd_systems.json.keys() | list if existing_dd_systems.json is defined else 'No JSON response' }}"
+      - "Full response: {{ existing_dd_systems.json | default({}) }}"
+  tags:
+    - rest_api
+    - api_test
+
+- name: Check if Data Domain system already exists
+  set_fact:
+    dd_system_exists: "{{ (existing_dd_systems.json.dataDomainSystems | default([])) | selectattr('name', 'equalto', ddve_fqdn) | list | length > 0 }}"
+  when: existing_dd_systems.json is defined
+  tags:
+    - rest_api
+    - api_test
+
+- name: Display Data Domain system check
+  debug:
+    msg:
+      - "🔍 Data Domain System Check:"
+      - "   Looking for: {{ ddve_fqdn }}"
+      - "   Already exists: {{ '✅ Yes - skipping creation' if dd_system_exists else '❌ No - will create' }}"
+  tags:
+    - rest_api
+    - api_test
+
+- name: Create folder on Data Domain system
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/datadomainsystems/{{ ddve_fqdn }}/op/createfolder"
+    method: POST
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      storageUnit: "{{ storage_unit_name }}"
+      folder: "{{ pool_name | default('gold') }}"
+      userName: "{{ ddboost_user | default('networker') }}"
+      password: "{{ ddboost_password | default('Changeme123!') }}"
+    validate_certs: no
+    status_code: [200, 201, 400]  # 400 means already exists
+    timeout: 60
+  register: folder_create
+  ignore_errors: yes
+  delegate_to: localhost
+  tags:
+    - rest_api
+    - api_test
+
+- name: Display folder creation result
+  debug:
+    msg:
+      - "📁 Folder Creation:"
+      - "   Storage Unit: {{ storage_unit_name }}"
+      - "   Folder: {{ pool_name | default('gold') }}"
+      - "   Status: {{ '✅ Created' if folder_create.status == 201 else '⚠️  Already exists' if folder_create.status == 400 else '✅ Success' if folder_create.status == 200 else '❌ Failed' }}"
+      - "   HTTP Status: {{ folder_create.status | default('Unknown') }}"
+  when: folder_create is defined
+  tags:
+    - rest_api
+    - api_test
+
+- name: Debug device add request
+  debug:
+    msg:
+      - "🔍 Device Add Request:"
+      - "URL: https://{{ networker_fqdn }}:9090/nwrestapi/v3/global/devices"
+      - "Method: POST"
+      - "Auth: administrator / {{ authc_admin_password | default('Changeme123!') }}"
+      - "Request Body:"
+      - "  {"
+      - "    \"deviceAccessInfo\": \"{{ ddve_fqdn }}:/{{ storage_unit_name }}/{{ pool_name | default('gold') }}\","
+      - "    \"mediaType\": \"Data Domain\","
+      - "    \"name\": \"{{ ddve_fqdn }}_{{ pool_name | default('gold') }}\",,"
+      - "    \"remoteUser\": \"{{ ddboost_user | default('networker') }}\","
+      - "    \"password\": \"{{ ddboost_password | default('Changeme123!') }}\","
+      - "    \"volumePool\": \"{{ dd_volume_pool | default('Data Domain Default') }}\","
+      - "    \"status\": \"Enabled\","
+      - "    \"writeEnabled\": true,"
+      - "    \"readOnly\": false,"
+      - "    \"maxSession\": 60,"
+      - "    \"targetSession\": 20,"
+      - "    \"maxNsrmmdCount\": 4,"
+      - "    \"maxConsecutiveErrors\": 20,"
+      - "    \"saveMountTimeout\": 30,"
+      - "    \"saveLockout\": 0,"
+      - "    \"idleDeviceTimeout\": 0,"
+      - "    \"autoMediaManagement\": false,"
+      - "    \"ndmp\": false,"
+      - "    \"verifyLabelOnEject\": false,"
+      - "    \"warnOnSuspectVolumesInPercent\": 80,"
+      - "    \"deviceBlockSize\": \"HandlerDefault\""
+      - "  }"
+  tags:
+    - rest_api
+    - api_test
+
+- name: Add DDVE as Data Domain device to pool
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/devices"
+    method: POST
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      deviceAccessInfo: "{{ ddve_fqdn }}:/{{ storage_unit_name }}/{{ pool_name | default('gold') }}"
+      mediaType: "Data Domain"
+      name: "{{ ddve_fqdn }}_{{ pool_name | default('gold') }}"
+      remoteUser: "{{ ddboost_user | default('networker') }}"
+      password: "{{ ddboost_password | default('Changeme123!') }}"
+      volumePool: "{{ dd_volume_pool | default('Data Domain Default') }}"
+      status: "Enabled"
+      writeEnabled: true
+      readOnly: false
+      maxSession: 60
+      targetSession: 20
+      maxNsrmmdCount: 4
+      maxConsecutiveErrors: 20
+      saveMountTimeout: 30
+      saveLockout: 0
+      idleDeviceTimeout: 0
+      autoMediaManagement: false
+      ndmp: false
+      verifyLabelOnEject: false
+      warnOnSuspectVolumesInPercent: 80
+      deviceBlockSize: "HandlerDefault"
+    validate_certs: no
+    status_code: [200, 201, 400]
+    timeout: 120
+  register: device_add
+  ignore_errors: yes
+  delegate_to: localhost
+  tags:
+    - rest_api
+    - api_test
+
+- name: Display detailed error if device add failed
+  debug:
+    msg:
+      - "❌ DDVE Device Add Failed!"
+      - "HTTP Status: {{ device_add.status | default('Unknown') }}"
+      - "Response: {{ device_add.json | default({}) }}"
+      - "Error: {{ device_add.msg | default('No error message') }}"
+      - "Request Body Sent:"
+      - "  deviceAccessInfo: {{ ddve_fqdn }}:/{{ storage_unit_name }}/{{ pool_name | default('gold') }}"
+      - "  mediaType: Data Domain"
+      - "  name: {{ ddve_fqdn }}_{{ pool_name | default('gold') }}"
+      - "  remoteUser: {{ ddboost_user | default('networker') }}"
+  when: not (device_exists | default(false)) and device_add is defined and device_add.status is defined and device_add.status not in [200, 201]
+  tags:
+    - rest_api
+    - api_test
+
+- name: Display device add success
+  debug:
+    msg:
+      - "✅ DDVE Device Add Successful!"
+      - "HTTP Status: {{ device_add.status | default('Unknown') }}"
+      - "Device Name: {{ ddve_fqdn }}_{{ pool_name | default('gold') }}"
+  when: device_add is defined and device_add.status is defined and device_add.status in [200, 201]
+  tags:
+    - rest_api
+    - api_test
+
+- name: Label the device (if newly created)
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/devices/{{ ddve_fqdn }}_{{ pool_name | default('gold') }}/op/label"
+    method: POST
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      labelWithoutMount: "false"
+      pool: "{{ dd_volume_pool | default('Data Domain Default') }}"
+    validate_certs: no
+    status_code: [200, 201, 202, 204]
+    timeout: 60
+  register: label_result
+  when: not (device_exists | default(false)) and device_add is defined and device_add.status is defined and device_add.status in [200, 201]
+  delegate_to: localhost
+  ignore_errors: true
+  tags:
+    - rest_api
+    - api_test
+
+- name: Display label operation result
+  debug:
+    msg:
+      - "🏷️ Label Operation:"
+      - "   Status: {{ '✅ Labeled and ready' if label_result.status in [200, 201, 202, 204] else '❌ Failed' }}"
+      - "   Response: {{ label_result.json | default({}) | to_nice_json if label_result.json is defined else 'No response body' }}"
+  when: label_result is defined and label_result.status is defined
+  tags:
+    - rest_api
+    - api_test
+
+- name: Debug pool update request
+  debug:
+    msg:
+      - "🔍 Pool Update Debug:"
+      - "   Pool Name: {{ dd_volume_pool | default('Data Domain Default') }}"
+      - "   Device Name: {{ ddve_fqdn }}_{{ pool_name | default('gold') }}"
+      - "   DDVE FQDN: {{ ddve_fqdn }}"
+      - "   Pool Name: {{ pool_name | default('gold') }}"
+      - "   Device Add Status: {{ device_add.status | default('Not available') if device_add is defined else 'Not run' }}"
+      - "   Device Exists: {{ device_exists | default(false) }}"
+      - "   Condition Check: {{ (device_add is defined and device_add.status is defined and device_add.status in [200, 201]) or (device_exists | default(false)) }}"
+  tags:
+    - rest_api
+    - api_test
+
+- name: Update pool with DDVE device
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/pools/{{ dd_volume_pool | default('Data Domain Default') | urlencode }}"
+    method: PUT
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      devices: ["{{ ddve_fqdn }}_{{ pool_name | default('gold') }}"]
+    validate_certs: no
+    status_code: [200, 204]
+  register: update_pool
+  delegate_to: localhost
+  ignore_errors: true
+  tags:
+    - rest_api
+    - api_test
+
+- name: Display pool update result
+  when: update_pool is defined
+  debug:
+    msg:
+      - "🏊 Pool Update:"
+      - "   Pool: {{ dd_volume_pool | default('Data Domain Default') }}"
+      - "   Device: {{ ddve_fqdn }}_{{ pool_name | default('gold') }}"
+      - "   Status: {{ '✅ Updated' if update_pool.status in [200, 204] else '❌ Failed' }}"
+      - "   HTTP Status: {{ update_pool.status | default('Unknown') }}"
+  tags:
+    - rest_api
+    - api_test
+
+- name: Display REST API configuration summary
+  debug:
+    msg:
+      - "📊 NetWorker REST API Configuration Summary:"
+      - "   API Status: {{ '✅ Connected' if auth_test.status == 200 else '❌ Failed' }}"
+      - "   DDVE Device: {{ '✅ Added' if device_add is defined and device_add.status is defined and device_add.status in [200, 201] else '⚠️  May already exist' if device_add is defined and device_add.status is defined and device_add.status == 400 else '❌ Failed' }}"
+      - "   Device Name: DDVE-DataDomain"
+      - "   Device Access: {{ ddve_fqdn }}"
+      - "   Pool: {{ dd_volume_pool | default('Data Domain Default') }}"
+      - "   Pool Updated: {{ '✅ Yes' if update_pool is defined and update_pool.status is defined and update_pool.status in [200, 204] else '⚠️ Skipped' if not (update_pool is defined) else '❌ No' }}"
+      - "   DD Boost User: {{ ddboost_user | default('networker') }}"
+  tags:
+    - rest_api
+    - api_test
+
+- name: Display NetWorker configuration summary
+  debug:
+    msg:
+      - "⚙️  NetWorker Server Configuration Summary:"
+      - "   Status: {{ '✅ Already configured (service running)' if networker_already_configured else '🔄 Newly configured' }}"
+      - "   Service: {{ '✅ Active' if networker_already_configured else '🔄 Started and enabled' }}"
+      - "   Port 9001: {{ '✅ Listening' if networker_already_configured else '🔄 Available' }}"
+      - "   🚀 NetWorker Server ready for client connections"
+
+# Initialize variables that might be skipped
+- name: Initialize policy-related variables
+  set_fact:
+    gold_policy_id: "{{ gold_policy_id | default('Gold') }}"
+    create_gold_policy: "{{ create_gold_policy | default({'status': 0, 'json': {}}) }}"
+    create_workflow: "{{ create_workflow | default({'status': 0, 'json': {}}) }}"
+    create_workflow_status: "{{ create_workflow_status | default(0) }}"
+    create_workflow_json: "{{ create_workflow_json | default({}) }}"
+    create_workflow_raw: "{{ create_workflow_raw | default('') }}"
+    create_workflow_cleaned: "{{ create_workflow_cleaned | default('') }}"
+    dd_system_add: "{{ dd_system_add | default({'status': 0}) }}"
+    existing_dd_systems_json: "{{ existing_dd_systems_json | default({}) }}"
+    existing_policies_json: "{{ existing_policies_json | default({}) }}"
+    label_result_json: "{{ label_result_json | default({}) }}"
+    label_result_status: "{{ label_result_status | default(0) }}"
+    filesystem_workflow_exists: "{{ filesystem_workflow_exists | default(false) }}"
+  tags:
+    - rest_api
+    - policy
+
+# Protection Policy Configuration
+- name: List existing protection policies
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/protectionpolicies"
+    method: GET
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+    validate_certs: no
+    status_code: [200]
+  register: existing_policies
+  delegate_to: localhost
+  tags:
+    - rest_api
+    - policy
+
+- name: Check if Gold policy exists
+  set_fact:
+    gold_policy_exists: "{{ (existing_policies.json.protectionPolicies | default([])) | selectattr('name', 'equalto', 'Gold') | list | length > 0 }}"
+    gold_policy: "{{ (existing_policies.json.protectionPolicies | default([])) | selectattr('name', 'equalto', 'Gold') | list | first | default({}) }}"
+  when: existing_policies.json is defined
+  tags:
+    - rest_api
+    - policy
+
+- name: Display Gold policy check
+  debug:
+    msg:
+      - "🔍 Gold Protection Policy Check:"
+      - "   Already exists: {{ '✅ Yes' if gold_policy_exists else '❌ No - will create' }}"
+      - "   Policy ID: Gold"
+  tags:
+    - rest_api
+    - policy
+
+- name: Create Gold protection policy
+  when: not gold_policy_exists
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/protectionpolicies"
+    method: POST
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "Gold"
+      comment: "Gold tier protection policy"
+      enabled: true
+    validate_certs: no
+    status_code: [200, 201]
+  register: create_gold_policy
+  delegate_to: localhost
+  ignore_errors: true
+  tags:
+    - rest_api
+    - policy
+
+- name: Set Gold policy ID
+  set_fact:
+    gold_policy_id: "Gold"
+  when: gold_policy_exists or (create_gold_policy.status | default(0)) in [200, 201]
+  tags:
+    - rest_api
+    - policy
+
+- name: Display Gold policy creation result
+  when: not gold_policy_exists
+  debug:
+    msg:
+      - "📋 Gold Policy Creation:"
+      - "   Status: {{ '✅ Created' if create_gold_policy.status in [200, 201] else '❌ Failed' }}"
+      - "   Policy ID: {{ gold_policy_id | default('Unknown') }}"
+  tags:
+    - rest_api
+    - policy
+
+- name: List existing protection groups
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/protectiongroups"
+    method: GET
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+    validate_certs: no
+    status_code: [200]
+  register: existing_groups
+  delegate_to: localhost
+  tags:
+    - rest_api
+    - policy
+
+- name: Check if Gold-Filesystem group exists
+  set_fact:
+    gold_group_exists: "{{ (existing_groups.json.protectionGroups | default([])) | selectattr('name', 'equalto', 'Gold-Filesystem') | list | length > 0 }}"
+  when: existing_groups.json is defined
+  tags:
+    - rest_api
+    - policy
+
+- name: Create Gold-Filesystem protection group
+  when: gold_policy_id | default('') != '' and not gold_group_exists
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/protectiongroups"
+    method: POST
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "Gold-Filesystem"
+      workItemType: "Client"
+      comment: "Protection group for filesystem backups"
+      workItems: []
+    validate_certs: no
+    status_code: [200, 201]
+  register: create_protection_group
+  delegate_to: localhost
+  ignore_errors: true
+  tags:
+    - rest_api
+    - policy
+
+- name: Display protection group creation result
+  when: gold_policy_id | default('') != ''
+  debug:
+    msg:
+      - "👥 Protection Group Creation:"
+      - "   Name: Gold-Filesystem"
+      - "   Status: {{ '✅ Already exists - skipped' if gold_group_exists else '✅ Created' if (create_protection_group.status | default(0)) in [200, 201] else '❌ Failed' if create_protection_group is defined else '⚠️  Skipped' }}"
+  tags:
+    - rest_api
+    - policy
+
+- name: List existing workflows in Gold policy
+  when: gold_policy_id | default('') != ''
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/protectionpolicies/{{ gold_policy_id }}/workflows"
+    method: GET
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+    validate_certs: no
+    status_code: [200]
+  register: existing_workflows
+  delegate_to: localhost
+  tags:
+    - rest_api
+    - policy
+
+- name: Check if Filesystem workflow exists
+  when: gold_policy_id | default('') != '' and existing_workflows.json is defined
+  set_fact:
+    filesystem_workflow_exists: "{{ (existing_workflows.json.workflows | default([])) | selectattr('name', 'equalto', 'Filesystem') | list | length > 0 }}"
+  tags:
+    - rest_api
+    - policy
+
+- name: Create Filesystem workflow in Gold policy
+  when: gold_policy_id | default('') != '' and not filesystem_workflow_exists
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/protectionpolicies/{{ gold_policy_id }}/workflows"
+    method: POST
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "Filesystem"
+      comment: "Filesystem backup workflow"
+      enabled: true
+      autoStartEnabled: true
+      startTime: "23:00"
+      endTime: "05:00"
+      protectionGroups: ["Gold-Filesystem"]
+      restartTimeWindow: "24:00"
+      startInterval: "24:00"
+    validate_certs: no
+    status_code: [200, 201]
+  register: create_workflow
+  delegate_to: localhost
+  ignore_errors: true
+  tags:
+    - rest_api
+    - policy
+
+
+- name: Set workflow ID
+  when: gold_policy_id | default('') != ''
+  set_fact:
+    workflow_id: "{{ 'Filesystem' if filesystem_workflow_exists | default(false) else (create_workflow.json.resourceId | default('Filesystem')) if create_workflow is defined and create_workflow.json is defined else 'Filesystem' }}"
+  tags:
+    - rest_api
+    - policy
+
+- name: Display workflow creation result
+  when: gold_policy_id | default('') != ''
+  debug:
+    msg:
+      - "📅 Workflow Creation:"
+      - "   Name: Filesystem"
+      - "   Status: {{ '✅ Already exists - skipped' if filesystem_workflow_exists | default(false) else '✅ Created' if (create_workflow.status | default(0)) in [200, 201] else '❌ Failed' if create_workflow is defined else '⚠️  Skipped' }}"
+      - "   {% if workflow_id is defined %}Workflow ID: {{ workflow_id }}{% endif %}"
+  tags:
+    - rest_api
+    - policy
+
+- name: Add Traditional backup action to workflow
+  when: gold_policy_id | default('') != '' and workflow_id | default('') != ''
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/protectionpolicies/{{ gold_policy_id }}/workflows/{{ workflow_id }}"
+    method: PUT
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    force_basic_auth: yes
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      actions:
+        - name: "Backup"
+          actionSpecificData:
+            backup:
+              destinationStorageNodes:
+                - "{{ networker_hostname }}.{{ route53_zone | default('networker.lab') }}"
+              retentionPeriod: "1 Months"
+              backupSpecificData:
+                traditional:
+                  destinationPool: "{{ dd_volume_pool | default('Data Domain Default') }}"
+    validate_certs: no
+    timeout: 60
+    status_code: [200, 201, 204]
+  register: create_action_response
+  delegate_to: localhost
+  ignore_errors: true
+  tags:
+    - rest_api
+    - policy
+
+- name: Process action creation result
+  when: gold_policy_id | default('') != '' and workflow_id | default('') != '' and create_action_response is defined
+  set_fact:
+    create_action:
+      status: "{{ create_action_response.status | default(0) }}"
+  tags:
+    - rest_api
+    - policy
+
+- name: Debug action creation response
+  when: gold_policy_id | default('') != '' and workflow_id | default('') != '' and create_action_response is defined
+  debug:
+    msg:
+      - "🔍 Action Creation Debug:"
+      - "   HTTP Status: {{ create_action_response.status | default('Not found') }}"
+      - "   Response: {{ create_action_response.json | default({}) }}"
+      - "   Message: {{ create_action_response.msg | default('No message') }}"
+  tags:
+    - rest_api
+    - policy
+
+- name: Display action creation result
+  when: gold_policy_id | default('') != '' and workflow_id | default('') != ''
+  debug:
+    msg:
+      - "🎯 Traditional Backup Action:"
+      - "   Type: Traditional"
+      - "   Destination Pool: {{ dd_volume_pool | default('Data Domain Default') }}"
+      - "   Status: {{ '✅ Added to workflow' if (create_action.status | default(0)) in [200, 201, 204] else '⚠️  May already exist' if (create_action.status | default(0)) == 400 else '❌ Failed' if create_action is defined else '⚠️  Skipped' }}"
+  tags:
+    - rest_api
+    - policy
+
+- name: Debug status codes
+  debug:
+    msg:
+      - "🔍 Status Code Debug:"
+      - "   Protection Group Status: {{ create_protection_group.status | default('Not set') }}"
+      - "   Workflow Status: {{ create_workflow.status | default('Not set') }}"
+      - "   Action Status: {{ create_action.status | default('Not set') }}"
+  tags:
+    - rest_api
+    - policy
+
+- name: Add Linux client to NetWorker
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/clients"
+    method: POST
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    force_basic_auth: yes
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      backupType: "Filesystem"
+      hostname: "networker-lab-linux-01.{{ route53_zone | default('networker.lab') }}"
+      saveSets:
+        - "All"
+      protectionGroups:
+        - "Gold-Filesystem"
+    validate_certs: no
+    timeout: 60
+    status_code: [200, 201, 400]  # 400 indicates client already exists
+  register: add_linux_client_response
+  delegate_to: localhost
+  ignore_errors: true
+  tags:
+    - rest_api
+    - policy
+
+- name: Add Windows client to NetWorker
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/clients"
+    method: POST
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    force_basic_auth: yes
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      backupType: "Filesystem"
+      hostname: "networker-lab-windows-01.{{ route53_zone | default('networker.lab') }}"
+      saveSets:
+        - "All"
+      protectionGroups:
+        - "Gold-Filesystem"
+    validate_certs: no
+    timeout: 60
+    status_code: [200, 201, 400]  # 400 indicates client already exists
+  register: add_windows_client_response
+  delegate_to: localhost
+  ignore_errors: true
+  tags:
+    - rest_api
+    - policy
+
+- name: Debug Linux client creation
+  debug:
+    msg:
+      - "🔍 Linux Client Creation Debug:"
+      - "   HTTP Status: {{ add_linux_client_response.status | default('Not found') }}"
+      - "   Response: {{ add_linux_client_response.json | default({}) }}"
+      - "   Message: {{ add_linux_client_response.msg | default('No message') }}"
+  when: add_linux_client_response is defined
+  tags:
+    - rest_api
+    - policy
+
+- name: Debug Windows client creation
+  debug:
+    msg:
+      - "🔍 Windows Client Creation Debug:"
+      - "   HTTP Status: {{ add_windows_client_response.status | default('Not found') }}"
+      - "   Response: {{ add_windows_client_response.json | default({}) }}"
+      - "   Message: {{ add_windows_client_response.msg | default('No message') }}"
+  when: add_windows_client_response is defined
+  tags:
+    - rest_api
+    - policy
+
+- name: Display client registration results
+  debug:
+    msg:
+      - "👥 Client Registration:"
+      - "   Linux Client: {{ '✅ Added' if (add_linux_client_response.status | default(0)) in [200, 201] else '⚠️  May already exist' if (add_linux_client_response.status | default(0)) == 400 else '❌ Failed' }}"
+      - "   Windows Client: {{ '✅ Added' if (add_windows_client_response.status | default(0)) in [200, 201] else '⚠️  May already exist' if (add_windows_client_response.status | default(0)) == 400 else '❌ Failed' }}"
+  tags:
+    - rest_api
+    - policy
+
+- name: Run backup for Gold policy Filesystem workflow
+  uri:
+    url: "https://{{ ansible_host }}:9090/nwrestapi/v3/global/protectionpolicies/Gold/workflows/Filesystem/op/backup"
+    method: POST
+    user: administrator
+    password: "{{ authc_admin_password | default('Changeme123@') }}"
+    force_basic_auth: yes
+    headers:
+      Host: "{{ networker_fqdn }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: {}
+    validate_certs: no
+    timeout: 60
+    status_code: [200, 201, 202]  # 202 is common for async operations
+  register: run_backup_response
+  delegate_to: localhost
+  ignore_errors: true
+  tags:
+    - rest_api
+    - policy
+    - backup
+
+- name: Display backup execution result
+  debug:
+    msg:
+      - "🔄 Backup Execution:"
+      - "   Policy: Gold"
+      - "   Workflow: Filesystem"
+      - "   Status: {{ '✅ Backup started' if (run_backup_response.status | default(0)) in [200, 201, 202] else '❌ Failed to start' }}"
+      - "   HTTP Status: {{ run_backup_response.status | default('Unknown') }}"
+      - "   Response: {{ run_backup_response.json | default({}) }}"
+  when: run_backup_response is defined
+  tags:
+    - rest_api
+    - policy
+    - backup
+
+- name: Display protection policy configuration summary
+  debug:
+    msg:
+      - "📊 Protection Policy Configuration Summary:"
+      - "   Gold Policy: {{ '✅ Exists' if gold_policy_exists | default(false) else '✅ Created' if (create_gold_policy.status | default(0)) in [200, 201] else '❌ Failed' }}"
+      - "   Protection Group: Gold-Filesystem {{ '✅ Exists' if gold_group_exists | default(false) else '✅ Created' if (create_protection_group.status | default(0)) in [200, 201] else '❌ Failed' }}"
+      - "   Workflow: Filesystem {{ '✅ Exists' if filesystem_workflow_exists | default(false) else '✅ Created' if (create_workflow.status | default(0)) in [200, 201] else '❌ Failed' }}"
+      - "   Backup Action: Traditional {{ '✅' if (create_action.status | default(0)) in [200, 201, 202, 204] else '⚠️  Check if workflow exists first' }}"
+      - "   Linux Client: {{ '✅ Registered' if (add_linux_client_response.status | default(0)) in [200, 201, 400] else '❌ Failed' }}"
+      - "   Windows Client: {{ '✅ Registered' if (add_windows_client_response.status | default(0)) in [200, 201, 400] else '❌ Failed' }}"
+      - "   🚀 Protection policy ready for filesystem backups"
+  tags:
+    - rest_api
+    - policy

@@ -1,0 +1,6 @@
+---
+# Linux client specific variables
+
+# Amazon Linux 2023 uses Python 3.9+ by default
+# No need to specify interpreter - Ansible will auto-discover
+# ansible_python_interpreter: auto

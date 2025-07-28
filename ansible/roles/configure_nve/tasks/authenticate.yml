@@ -1,0 +1,90 @@
+---
+# NetWorker Virtual Edition Authentication Tasks
+# Default password is the private IP address
+
+- name: Get NetWorker private IP from inventory
+  set_fact:
+    nve_private_ip: "{{ private_ip }}"
+    
+- name: Display private IP for initial authentication
+  debug:
+    msg: "Using private IP as initial password: {{ nve_private_ip }}"
+
+- name: Wait for NetWorker SSH to be accessible
+  raw: |
+    echo "Checking SSH connectivity to {{ ansible_host }}:22"
+    timeout=300
+    delay=30
+    echo "Waiting initial $delay seconds..."
+    sleep $delay
+    start_time=$(date +%s)
+    attempt=1
+    while true; do
+      echo "Attempt $attempt: Checking {{ ansible_host }}:22..."
+      if nc -z -w 5 {{ ansible_host }} 22 >/dev/null 2>&1; then
+        echo "SUCCESS: SSH port 22 is accessible on {{ ansible_host }}"
+        exit 0
+      fi
+      current_time=$(date +%s)
+      elapsed=$((current_time - start_time))
+      echo "Not accessible yet. Elapsed: $elapsed seconds"
+      if [ $elapsed -gt $timeout ]; then
+        echo "TIMEOUT: SSH not accessible on {{ ansible_host }} after $timeout seconds"
+        exit 1
+      fi
+      attempt=$((attempt + 1))
+      sleep 5
+    done
+  delegate_to: localhost
+  changed_when: false
+
+- name: Test if private IP works as sudo password
+  raw: |
+    echo '{{ nve_private_ip }}' | sudo -S whoami
+  register: private_ip_sudo_test
+  failed_when: false
+  changed_when: false
+
+- name: Test if standard password works as sudo password
+  raw: |
+    echo 'Changeme123' | sudo -S whoami
+  register: standard_sudo_test
+  failed_when: false
+  changed_when: false
+  when: private_ip_sudo_test is defined and private_ip_sudo_test.rc is defined and private_ip_sudo_test.rc != 0
+
+- name: Determine working password
+  set_fact:
+    networker_current_sudo_password: >-
+      {%- if private_ip_sudo_test is defined and private_ip_sudo_test.rc is defined and private_ip_sudo_test.rc == 0 -%}
+        {{ nve_private_ip }}
+      {%- elif standard_sudo_test is defined and standard_sudo_test.rc is defined and standard_sudo_test.rc == 0 -%}
+        Changeme123
+      {%- else -%}
+        unknown
+      {%- endif -%}
+
+- name: Verify at least one password works
+  fail:
+    msg: |
+      ❌ Neither password authentication worked for NetWorker VE at {{ ansible_host }}
+      Tried passwords:
+      - Private IP: {{ nve_private_ip }}
+      - Standard: Changeme123
+      
+      Troubleshooting steps:
+      1. Verify the private IP ({{ nve_private_ip }}) matches the actual instance private IP
+      2. Check SSH connectivity: ssh -i ../aws_key admin@{{ ansible_host }}
+      3. The NetWorker VE may have a different password
+  when: networker_current_sudo_password == "unknown"
+
+- name: Display authentication status
+  debug:
+    msg:
+      - "🔐 NetWorker VE Authentication Summary:"
+      - "   Private IP: {{ nve_private_ip }}"
+      - "   Private IP password: {{ '✅ Working' if private_ip_sudo_test is defined and private_ip_sudo_test.rc is defined and private_ip_sudo_test.rc == 0 else '❌ Not working' if private_ip_sudo_test is defined and private_ip_sudo_test.rc is defined else '⏭️  Not tested' }}"
+      - "   Standard password: {{ '✅ Working' if standard_sudo_test is defined and standard_sudo_test.rc is defined and standard_sudo_test.rc == 0 else '❌ Not working' if standard_sudo_test is defined and standard_sudo_test.rc is defined else '⏭️  Not tested' }}"
+      - "   Current working password: {{ 'Private IP' if networker_current_sudo_password == nve_private_ip else 'Changeme123' if networker_current_sudo_password == 'Changeme123' else 'Unknown' }}"
+      - "   ✅ Authentication configured for NetWorker VE"
+

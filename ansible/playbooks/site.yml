@@ -1,0 +1,270 @@
+---
+# AWS NetWorker Lab - Complete Infrastructure Setup
+# Usage:
+#   Full deployment:     ansible-playbook site.yml
+#   DDVE only:          ansible-playbook site.yml --tags ddve
+#   NetWorker only:     ansible-playbook site.yml --tags networker
+#   Clients only:       ansible-playbook site.yml --tags agents  
+#   Validation only:    ansible-playbook site.yml --tags validate
+#   Infrastructure:     ansible-playbook site.yml --tags infrastructure
+#   Configuration:      ansible-playbook site.yml --tags configuration
+
+- name: Pre-flight checks
+  hosts: all:!ddve_systems:!networker_servers
+  gather_facts: no
+  become: no
+  tasks:
+    - name: Wait for SSH to be available on Linux clients
+      wait_for_connection:
+        delay: 5
+        timeout: 300
+      when: inventory_hostname in groups['linux_clients'] | default([])
+    
+    - name: Wait for WinRM to be available on Windows clients
+      wait_for_connection:
+        delay: 10
+        timeout: 300
+      when: inventory_hostname in groups['windows_clients'] | default([])
+      
+    - name: Check connectivity to Linux/Unix hosts
+      ping:
+      when: inventory_hostname not in groups['windows_clients'] | default([])
+      
+    - name: Check connectivity to Windows hosts
+      win_ping:
+      when: inventory_hostname in groups['windows_clients'] | default([])
+      
+    - name: Display deployment target summary
+      debug:
+        msg:
+          - "=== AWS NetWorker Lab Deployment ==="
+          - "NetWorker Servers: {{ groups['networker_servers'] | default([]) | length }}"
+          - "DDVE Systems: {{ groups['ddve_systems'] | default([]) | length }}"
+          - "Linux Clients: {{ groups['linux_clients'] | default([]) | length }}"
+          - "Windows Clients: {{ groups['windows_clients'] | default([]) | length }}"
+      run_once: true
+  tags:
+    - always
+
+- name: Pre-flight check for NetWorker servers
+  hosts: localhost
+  gather_facts: no
+  become: no
+  tasks:
+    - name: Check NetWorker SSH connectivity
+      wait_for:
+        host: "{{ hostvars[item]['ansible_host'] }}"
+        port: 22
+        timeout: 600
+        delay: 10
+        msg: "NetWorker server at {{ hostvars[item]['ansible_host'] }} is not accessible on SSH port 22 after 10 minutes"
+      loop: "{{ groups['networker_servers'] | default([]) }}"
+      loop_control:
+        label: "{{ hostvars[item]['ansible_host'] }}"
+  tags:
+    - always
+
+- name: Pre-flight check for DDVE systems
+  hosts: localhost
+  gather_facts: no
+  become: no
+  tasks:
+    - name: Check DDVE SSH connectivity
+      wait_for:
+        host: "{{ hostvars[item]['ansible_host'] }}"
+        port: 22
+        timeout: 600
+        delay: 10
+        msg: "DDVE at {{ hostvars[item]['ansible_host'] }} is not accessible on SSH port 22 after 10 minutes"
+      loop: "{{ groups['ddve_systems'] | default([]) }}"
+      loop_control:
+        label: "{{ hostvars[item]['ansible_host'] }}"
+  tags:
+    - always
+
+- name: Install NetWorker agents on Linux clients
+  hosts: linux_clients
+  become: yes
+  gather_facts: yes
+  vars:
+    component_name: "NetWorker Agents"
+  pre_tasks:
+    - name: Display agent installation start
+      debug:
+        msg:
+          - "=== Installing {{ component_name }} ==="
+          - "Host: {{ ansible_host }}"
+          - "OS: {{ ansible_os_family }}"
+  roles:
+    - install_agent
+  post_tasks:
+    - name: Display agent installation complete
+      debug:
+        msg: "✅ {{ component_name }} installation completed successfully"
+  tags:
+    - agents
+    - clients
+    - configuration
+    - install_agent
+    - networker_client
+
+- name: Install NetWorker agents on Windows clients
+  hosts: windows_clients
+  become: no
+  gather_facts: yes
+  vars:
+    component_name: "NetWorker Agents"
+  pre_tasks:
+    - name: Display agent installation start
+      debug:
+        msg:
+          - "=== Installing {{ component_name }} ==="
+          - "Host: {{ ansible_host }}"
+          - "OS: {{ ansible_os_family }}"
+  roles:
+    - install_agent
+  post_tasks:
+    - name: Display agent installation complete
+      debug:
+        msg: "✅ {{ component_name }} installation completed successfully"
+  tags:
+    - agents
+    - clients
+    - configuration
+    - install_agent
+    - networker_client
+
+
+- name: Configure DDVE (Data Domain Virtual Edition)
+  hosts: localhost
+  become: no
+  gather_facts: no
+  vars:
+    component_name: "DDVE"
+  pre_tasks:
+    - name: Display DDVE configuration start
+      debug:
+        msg:
+          - "=== Configuring {{ component_name }} ==="
+          - "Target DDVE systems: {{ groups['ddve_systems'] | length }}"
+  tasks:
+    - name: Configure each DDVE system
+      include_role:
+        name: configure_ddve
+      vars:
+        ansible_host: "{{ hostvars[item]['ansible_host'] }}"
+        instance_id: "{{ hostvars[item]['instance_id'] }}"
+        s3_bucket: "{{ hostvars[item]['s3_bucket'] }}"
+        private_ip: "{{ hostvars[item]['private_ip'] }}"
+      loop: "{{ groups['ddve_systems'] }}"
+      loop_control:
+        loop_var: item
+  post_tasks:
+    - name: Display DDVE configuration complete
+      debug:
+        msg: "✅ {{ component_name }} configuration completed successfully"
+  tags:
+    - ddve
+    - storage
+    - infrastructure
+
+- name: Configure NetWorker Server
+  hosts: networker_servers
+  become: no
+  gather_facts: no
+  vars:
+    component_name: "NetWorker Server"
+  pre_tasks:
+    - name: Display NetWorker configuration start
+      debug:
+        msg:
+          - "=== Configuring {{ component_name }} ==="
+          - "Host: {{ ansible_host }}"
+  roles:
+    - configure_nve
+  post_tasks:
+    - name: Display NetWorker configuration complete
+      debug:
+        msg: "✅ {{ component_name }} configuration completed successfully"
+  tags:
+    - networker
+    - nve
+    - backup-server
+    - infrastructure
+
+- name: Configure backup policies and workflows
+  hosts: networker_servers
+  become: yes
+  gather_facts: yes
+  vars:
+    component_name: "Backup Configuration"
+  pre_tasks:
+    - name: Display backup configuration start
+      debug:
+        msg: "=== Configuring {{ component_name }} ==="
+  roles:
+    - configure_backup
+  post_tasks:
+    - name: Display backup configuration complete
+      debug:
+        msg: "✅ {{ component_name }} completed successfully"
+  tags:
+    - backup-config
+    - configuration
+    - never  # Skip by default due to missing role
+
+- name: Validate complete deployment
+  hosts: networker_servers
+  become: no
+  gather_facts: no
+  vars:
+    component_name: "Deployment Validation"
+  pre_tasks:
+    - name: Display validation start
+      debug:
+        msg: "=== Running {{ component_name }} ==="
+  tasks:
+    - name: Run deployment validation
+      include_role:
+        name: configure_backup
+        tasks_from: validate
+      ignore_errors: yes
+  post_tasks:
+    - name: Display validation complete
+      debug:
+        msg: "✅ {{ component_name }} completed"
+  tags:
+    - validate
+    - verification
+    - never  # Skip by default, run explicitly
+
+- name: Display deployment summary
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Show deployment completion summary
+      debug:
+        msg:
+          - "🎉 AWS NetWorker Lab Deployment Complete!"
+          - ""
+          - "=== Access URLs ==="
+          - "Login to DDVE here: https://{{ hostvars[groups['ddve_systems'][0]]['ansible_host'] }}"
+          - "Login to NetWorker UI here: https://{{ hostvars[groups['networker_servers'][0]]['ansible_host'] }}:9090/nwui"
+          - ""
+          - "=== Default Credentials ==="
+          - "DDVE: username=sysadmin, password=Changeme123!"
+          - "NetWorker: username=admin, password=Changeme123!"
+          - ""
+          - "=== Next Steps ==="
+          - "1. Access the web interfaces using the URLs above"
+          - "2. Configure backup policies and schedules"
+          - "3. Test backup and restore operations"
+          - ""
+          - "=== Useful Commands ==="
+          - "  View status:        make status"
+          - "  Stop instances:     make stop"
+          - "  Start instances:    make start"
+          - "  Run validation:     ansible-playbook site.yml --tags validate"
+      when: groups['ddve_systems'] is defined and groups['networker_servers'] is defined
+  tags:
+    - always

@@ -1,0 +1,3 @@
+---
+# DDVE handlers - not needed for REST API configuration
+# All configuration is done via REST API calls

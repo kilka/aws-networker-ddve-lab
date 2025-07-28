@@ -1,0 +1,287 @@
+---
+# NetWorker VE avi-cli Configuration with Smart Installation Check
+
+- name: Display avi-cli configuration start
+  debug:
+    msg:
+      - "🚀 Starting NetWorker VE avi-cli Configuration"
+      - "   Target: {{ inventory_hostname }}"
+
+# Check installation status with private IP password first
+- name: Check installation status with private IP password
+  raw: |
+    /opt/emc-tools/bin/avi-cli localhost \
+    --password {{ private_ip }} \
+    --listhistory 2>&1
+  register: status_check_private_ip
+  failed_when: false
+  changed_when: false
+
+# If private IP fails, try with standard password
+- name: Check installation status with standard password
+  raw: |
+    /opt/emc-tools/bin/avi-cli localhost \
+    --password Changeme123 \
+    --listhistory 2>&1
+  register: status_check_standard
+  failed_when: false
+  changed_when: false
+  when: status_check_private_ip.rc != 0
+
+# Show raw output for debugging
+- name: Display raw status check output
+  debug:
+    msg: |
+      Raw output from status check:
+      {{ status_check_private_ip.stdout if status_check_private_ip.rc == 0 else status_check_standard.stdout if status_check_standard.rc == 0 else 'No valid output' }}
+  when: status_check_private_ip.rc == 0 or status_check_standard.rc == 0
+
+# Determine current working password and installation status
+- name: Analyze installation status
+  set_fact:
+    current_avi_password: >-
+      {%- if status_check_private_ip.rc == 0 -%}
+        {{ private_ip }}
+      {%- elif status_check_standard.rc == 0 -%}
+        Changeme123
+      {%- else -%}
+        unknown
+      {%- endif -%}
+    nve_install_completed: >-
+      {%- if status_check_private_ip.rc == 0 -%}
+        {{ status_check_private_ip.stdout | regex_search('NveInstall[^|]*\|[^|]*\|\s*completed') is not none }}
+      {%- elif status_check_standard.rc == 0 -%}
+        {{ status_check_standard.stdout | regex_search('NveInstall[^|]*\|[^|]*\|\s*completed') is not none }}
+      {%- else -%}
+        false
+      {%- endif -%}
+    nve_config_completed: >-
+      {%- if status_check_private_ip.rc == 0 -%}
+        {{ status_check_private_ip.stdout | regex_search('NveConfig[^|]*\|[^|]*\|\s*completed') is not none }}
+      {%- elif status_check_standard.rc == 0 -%}
+        {{ status_check_standard.stdout | regex_search('NveConfig[^|]*\|[^|]*\|\s*completed') is not none }}
+      {%- else -%}
+        false
+      {%- endif -%}
+
+- name: Display installation status
+  debug:
+    msg:
+      - "📊 Installation Status Check:"
+      - "   Current password: {{ 'Private IP' if current_avi_password == private_ip else 'Changeme123' if current_avi_password == 'Changeme123' else 'Unknown' }}"
+      - "   NveInstall: {{ '✅ Completed' if nve_install_completed else '❌ Not completed' }}"
+      - "   NveConfig: {{ '✅ Completed' if nve_config_completed else '❌ Not completed' }}"
+      - "   Both packages completed: {{ '✅ Yes - skipping installation' if (nve_install_completed and nve_config_completed) else '❌ No - installation needed' }}"
+
+# Skip if already installed
+- name: Check if installation needed
+  set_fact:
+    skip_installation: "{{ nve_install_completed and nve_config_completed }}"
+
+- name: Display skip decision
+  debug:
+    msg: "✅ Installation already complete, skipping..."
+  when: skip_installation
+
+# Ensure variables are properly set
+- name: Set DDVE connection variables
+  set_fact:
+    route53_zone: "{{ route53_zone | default('networker.lab') }}"
+    ddve_hostname: "{{ ddve_hostname | default('ddve.networker.lab') }}"
+    ddve_storage_unit: "{{ ddve_storage_unit | default('networker-lab-server-01') }}"
+    ddve_ddboost_user: "{{ ddve_ddboost_user | default('networker') }}"
+
+# Create userinput.yaml if installation needed
+- name: Create userinput.yaml for avi-cli
+  raw: |
+    cat > /home/admin/userinput.yaml << 'EOF'
+    install_packages: /space/avamar/repo/packages/NveConfig-19.12.0-5.avp
+    stop_nve_services: 0
+    autostart: false
+    
+    timezone_city: {{ timezone_city | default("New York") }}
+    timezone_name: {{ timezone_name | default("America/New_York") }}
+    
+    nve_add_capacity_alert_threshold: {{ nve_capacity_threshold | default("0.7") }}
+    nve_critical_space_alert_threshold: {{ nve_critical_threshold | default("0.85") }}
+    
+    authentication_type: module
+    authentication_method_order: local
+    
+    javadir: /opt/nre/java/latest
+    tomcat_user: nsrtomcat
+    tomcat_data: /nsr/authc/data
+    tomcat_keystore: /nsr/authc/conf/authc.keystore
+    tomcat_keystore_password: {{ nve_default_password }}
+    tomcat_alias_password: changeit
+    trust_store_password: trustme
+    saml_keystore: /nsr/authc/conf/saml.keystore
+    saml_keystore_password: changeit
+    saml_alias_password: changeit
+    
+    authc_admin_password: {{ authc_admin_password | default("Changeme123@") }}
+    authc_postgresql_password: {{ postgres_password | default("Changeme123@") }}
+    authc_add_admin_group: true
+    accept_eula: true
+    
+    authc_hostname: networker-lab-server-01.{{ route53_zone }}
+    authc_port: 9090
+    authc_scripts: '/opt/nsr/authc-server/scripts'
+    
+    authentication_server_address: {{ authentication_server | default("localhost") }}
+    authentication_server_port: {{ authentication_port | default("9090") }}
+    
+    download_pub_key: Download
+    attach_dd_with_cert: true
+    
+    datadomain_host: "{{ ddve_hostname }}"
+    storage_path: "{{ ddve_storage_unit }}"
+    ddboost_user: "{{ ddve_ddboost_user }}"
+    ddboost_user_pwd: "{{ ddve_default_password }}"
+    ddboost_user_pwd_cf: "{{ ddve_default_password }}"
+    new_ddboost_user: false
+    
+    datadomain_sysadmin: "sysadmin"
+    datadomain_sysadmin_pwd: "{{ ddve_default_password }}"
+    add_datadomain_config: false
+
+    networker_webserver_user: nobody
+    networker_webserver_group: nobody
+    networker_webserver_port: 9000
+    networker_console_port: 9001
+    networker_console_database: /nsr/nmc/nmcdb
+    language_packages: None
+
+    networker_database_user: postgres
+    networker_database_port: 5432
+
+    snmp_string: public
+
+    networker_install_dir: /usr/sbin
+    networker_mc_dir: /opt/lgtonmc/bin
+
+    rootid_password: {{ nve_rootid_password }}
+    admin_password_os: {{ nve_default_password }}
+    root_password_os: {{ nve_default_password }}
+
+    install_avpasswd: false
+    nve_as_storage_node: false
+    EOF
+  changed_when: true
+  when: not skip_installation
+
+# Start installation in background if needed
+- name: Start avi-cli install in background
+  raw: |
+    # First check if process already running
+    if [ -f /tmp/avi_install.pid ] && kill -0 $(cat /tmp/avi_install.pid) 2>/dev/null; then
+      echo "Installation already running with PID: $(cat /tmp/avi_install.pid)"
+      exit 0
+    fi
+    
+    # Clean up old logs
+    rm -f /tmp/avi_install.log /tmp/avi_install.pid
+    
+    # Start installation with proper detachment
+    # Use nohup with proper signal handling to survive SSH disconnect
+    (
+      trap '' HUP
+      nohup /opt/emc-tools/bin/avi-cli localhost \
+      --password {{ current_avi_password }} \
+      --install NveConfig-19.12.0.5 \
+      --userinput /home/admin/userinput.yaml \
+      > /tmp/avi_install.log 2>&1 < /dev/null &
+      echo $! > /tmp/avi_install.pid
+    )
+    
+    PID=$(cat /tmp/avi_install.pid)
+    
+    # Wait a moment to check if it started successfully
+    sleep 5
+    
+    if kill -0 $PID 2>/dev/null; then
+      echo "Installation started successfully with PID: $PID"
+      echo "Log file: /tmp/avi_install.log"
+      echo "First 10 lines of log:"
+      head -n 10 /tmp/avi_install.log || echo "Log not yet available"
+    else
+      echo "ERROR: Installation failed to start"
+      echo "Log contents:"
+      cat /tmp/avi_install.log 2>/dev/null || echo "No log file found"
+      exit 1
+    fi
+  register: avi_start_result
+  when: not skip_installation
+
+- name: Display installation start result
+  debug:
+    msg: "{{ avi_start_result.stdout_lines }}"
+  when: not skip_installation
+
+# Poll for installation completion
+- name: Poll installation status
+  raw: |
+    # Show current status
+    echo "=== Checking installation status ==="
+    
+    # Check if process is still running
+    if [ -f /tmp/avi_install.pid ]; then
+      PID=$(cat /tmp/avi_install.pid)
+      if kill -0 $PID 2>/dev/null; then
+        echo "Process still running: PID $PID"
+      else
+        echo "Process completed or terminated"
+      fi
+    fi
+    
+    # Show last 20 lines of log
+    echo "=== Last 20 lines of installation log ==="
+    tail -n 20 /tmp/avi_install.log 2>/dev/null || echo "No log file found"
+    
+    echo "=== Checking AVI history ==="
+    # Try with current password first, then with new password
+    for password in "{{ current_avi_password }}" "Changeme123"; do
+      result=$(/opt/emc-tools/bin/avi-cli localhost --password "$password" --listhistory 2>&1)
+      if [ $? -eq 0 ]; then
+        echo "$result"
+        # Check if both installs are complete
+        if echo "$result" | grep -q "NveInstall.*completed" && echo "$result" | grep -q "NveConfig.*completed"; then
+          echo "INSTALLATION_COMPLETE"
+          exit 0
+        else
+          echo "Installation not yet complete. Current status:"
+          echo "$result" | grep -E "NveInstall|NveConfig"
+        fi
+        break
+      fi
+    done
+    echo "INSTALLATION_IN_PROGRESS"
+    exit 1
+  register: poll_result
+  until: poll_result.stdout is search("INSTALLATION_COMPLETE")
+  retries: 30
+  delay: 60
+  when: not skip_installation
+
+# Update password fact after installation
+- name: Update working password after installation
+  set_fact:
+    networker_current_sudo_password: "Changeme123"
+  when: not skip_installation
+
+# Final validation
+- name: Validate final installation status
+  raw: |
+    /opt/emc-tools/bin/avi-cli localhost \
+    --password Changeme123 \
+    --listhistory
+  register: final_status
+  failed_when: false
+  changed_when: false
+
+- name: Display final status
+  debug:
+    msg:
+      - "🎉 NetWorker VE avi-cli Configuration Complete!"
+      - "   Installation: {{ '✅ Successfully completed' if 'completed' in final_status.stdout else '⚠️  May require manual intervention' }}"
+      - "   Admin password: Changeme123"

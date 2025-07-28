@@ -1,0 +1,108 @@
+---
+- name: Validation header
+  debug:
+    msg: "=== NetWorker Lab Deployment Validation ==="
+
+- name: Check NetWorker Server status
+  systemd:
+    name: networker-server
+  register: nw_server_status
+
+- name: Display NetWorker Server status
+  debug:
+    msg: "NetWorker Server is {{ nw_server_status.status.ActiveState }}"
+
+- name: Check registered clients
+  shell: "cat /opt/networker/server/logs/registered_clients.log || echo 'No clients registered'"
+  register: registered_clients
+  changed_when: false
+
+- name: Display registered clients
+  debug:
+    msg: "{{ registered_clients.stdout_lines }}"
+
+- name: Check DDVE connectivity
+  wait_for:
+    host: "{{ hostvars[groups['ddve_systems'][0]]['private_ip'] }}"
+    port: 3009  # DDVE REST API port
+    timeout: 10
+  delegate_to: localhost
+  ignore_errors: yes
+  register: ddve_check
+  when: groups['ddve_systems'] is defined and groups['ddve_systems'] | length > 0
+
+- name: Display DDVE status
+  debug:
+    msg: "DDVE is {{ 'accessible' if ddve_check is succeeded else 'not accessible' }}"
+
+- name: Test backup simulation
+  command: "/opt/networker/server/bin/run_backup.sh"
+  register: backup_test
+  ignore_errors: yes
+
+- name: Display backup test results
+  debug:
+    msg: "{{ backup_test.stdout_lines | default(['Backup test not available']) }}"
+
+- name: Generate deployment summary
+  copy:
+    content: |
+      NetWorker Lab Deployment Summary
+      ================================
+      Generated: {{ ansible_date_time.iso8601 }}
+      
+      Infrastructure Status:
+      - VPC: {{ hostvars[groups['networker_servers'][0]]['ansible_default_ipv4']['network'] | default('10.0.1.0') }}/24
+      - NetWorker Server: {{ hostvars[groups['networker_servers'][0]]['ansible_host'] }} ({{ hostvars[groups['networker_servers'][0]]['private_ip'] }})
+      {% if groups['ddve_systems'] is defined and groups['ddve_systems'] | length > 0 %}
+      - DDVE: {{ hostvars[groups['ddve_systems'][0]]['ansible_host'] }} ({{ hostvars[groups['ddve_systems'][0]]['private_ip'] }})
+      - S3 Bucket: {{ hostvars[groups['ddve_systems'][0]]['s3_bucket'] }}
+      {% else %}
+      - DDVE: Not configured
+      - S3 Bucket: Not configured
+      {% endif %}
+      
+      Clients:
+      {% for host in groups['linux_clients'] %}
+      - {{ hostvars[host]['ansible_hostname'] }}: {{ hostvars[host]['private_ip'] }} (Linux)
+      {% endfor %}
+      {% for host in groups['windows_clients'] %}
+      - {{ hostvars[host]['ansible_hostname'] }}: {{ hostvars[host]['private_ip'] }} (Windows)
+      {% endfor %}
+      
+      Services Status:
+      - NetWorker Server: {{ nw_server_status.status.ActiveState }}
+      - DDVE: {{ 'Online' if ddve_check is succeeded else 'Offline' }}
+      - Backup Policy: Daily @ 22:00
+      
+      Access Information:
+      - NetWorker Console: https://{{ hostvars[groups['networker_servers'][0]]['ansible_host'] }}:9001
+      {% if groups['ddve_systems'] is defined and groups['ddve_systems'] | length > 0 %}
+      - DDVE Management: https://{{ hostvars[groups['ddve_systems'][0]]['ansible_host'] }}
+      {% endif %}
+      
+      Next Steps:
+      1. Access NetWorker Console to verify configuration
+      2. Run test backup: make -C /opt/networker test-backup
+      3. Monitor backup jobs in /opt/networker/server/logs/
+      
+      Cost Optimization:
+      - To stop instances: cd {{ playbook_dir }}/../.. && make stop
+      - To destroy all resources: cd {{ playbook_dir }}/../.. && make destroy
+    dest: /tmp/deployment_summary.txt
+    mode: '0644'
+
+- name: Display deployment summary
+  command: cat /tmp/deployment_summary.txt
+  register: summary
+  changed_when: false
+
+- name: Show deployment summary
+  debug:
+    msg: "{{ summary.stdout_lines }}"
+
+- name: Save deployment summary locally
+  fetch:
+    src: /tmp/deployment_summary.txt
+    dest: "{{ playbook_dir }}/../../deployment_summary_{{ ansible_date_time.epoch }}.txt"
+    flat: yes

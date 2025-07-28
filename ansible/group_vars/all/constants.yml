@@ -1,0 +1,48 @@
+---
+# AWS NetWorker Lab - Shared Constants
+# This file contains shared values used across multiple roles and playbooks
+
+# Default Passwords (should be overridden in production)
+default_admin_password: "Changeme123!"
+default_ddve_password: "Changeme123!"
+default_ddve_passphrase: "Changeme123!"
+default_ddboost_password: "Changeme123!"
+default_nve_password: "Changeme123!"
+
+# Network Configuration
+vpc_cidr: "10.0.0.0/16"
+public_subnet_cidr: "10.0.1.0/24"
+private_subnet_cidr: "10.0.2.0/24"
+
+# AMI IDs (us-east-1)
+# These should be updated for other regions
+marketplace_amis:
+  networker_ve: "ami-08560ec5891de83bd"
+  ddve: "ami-09e2f4b415eacc1b9"
+
+# Instance IDs patterns (for documentation purposes)
+instance_id_pattern: "i-[0-9a-f]+"
+
+# Common ports used by NetWorker components
+networker_ports:
+  client_service: 7937
+  storage_node: 7938
+  web_interface: 9090
+  rest_api: 9001
+
+# Common ports used by DDVE
+ddve_ports:
+  web_interface: 443
+  ssh: 22
+  ddboost: 2049
+  replication: 2051
+
+# Service names
+services:
+  networker_linux: "networker"
+  networker_windows: "nsrexecd"
+  
+# Installation directories
+install_dirs:
+  networker_linux: "/opt/nsr"
+  networker_windows: "C:\\Program Files\\EMC NetWorker\\nsr"
