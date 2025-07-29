@@ -160,6 +160,15 @@ validate_terraform() {
             cp "$tfvars" test.tfvars
             sed -i.bak 's/YOUR_IP_ADDRESS/1.2.3.4/g' test.tfvars 2>/dev/null || \
             sed -i '' 's/YOUR_IP_ADDRESS/1.2.3.4/g' test.tfvars 2>/dev/null
+            
+            # Add default AMI mappings if not present to avoid "cannot iterate over null" error
+            if ! grep -q "ddve_ami_mapping" test.tfvars; then
+                echo 'ddve_ami_mapping = {}' >> test.tfvars
+            fi
+            if ! grep -q "networker_ami_mapping" test.tfvars; then
+                echo 'networker_ami_mapping = {}' >> test.tfvars
+            fi
+            
             if terraform plan -var-file=test.tfvars -input=false > /dev/null 2>&1; then
                 success "  $tfvars is valid"
             else

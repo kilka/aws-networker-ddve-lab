@@ -2,8 +2,9 @@
 #
 # IMPORTANT: You must subscribe to these marketplace offerings before deployment:
 # 1. Dell EMC Data Domain Virtual Edition: 
-#    https://aws.amazon.com/marketplace/pp/prodview-q7oc4shdnpc4w
-# 2. Dell EMC NetWorker (if available) or use custom AMI
+#    https://aws.amazon.com/marketplace/pp/prodview-2x2p43yvgswtm
+# 2. Dell EMC NetWorker Virtual Edition:
+#    https://aws.amazon.com/marketplace/pp/prodview-34uq7mzbzj4c4
 
 # Data Domain Virtual Edition AMI
 # Note: The AMI ID varies by region. These are example IDs.
@@ -15,7 +16,7 @@ variable "ddve_ami_mapping" {
   type        = map(string)
   default = {
     # DDVE AMI IDs - Users must subscribe to Dell EMC Data Domain Virtual Edition in AWS Marketplace
-    # https://aws.amazon.com/marketplace/pp/prodview-q7oc4shdnpc4w
+    # https://aws.amazon.com/marketplace/pp/prodview-2x2p43yvgswtm
     "us-east-1"      = "ami-09e2f4b415eacc1b9"
     "us-west-2"      = "ami-PLACEHOLDER-DDVE-USW2"
     "eu-west-1"      = "ami-PLACEHOLDER-DDVE-EUW1"

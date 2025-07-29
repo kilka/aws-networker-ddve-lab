@@ -9,13 +9,13 @@ This guide explains how to use the actual Dell EMC Data Domain Virtual Edition (
 ### 1. Subscribe to AWS Marketplace Offerings
 
 #### Data Domain Virtual Edition (DDVE)
-1. Visit the [DDVE Marketplace Page](https://aws.amazon.com/marketplace/pp/prodview-q7oc4shdnpc4w)
+1. Visit the [DDVE Marketplace Page](https://aws.amazon.com/marketplace/pp/prodview-2x2p43yvgswtm)
 2. Click "Continue to Subscribe"
 3. Accept the terms and conditions
 4. Wait for subscription to be processed (can take a few minutes)
 
 #### NetWorker Virtual Edition
-1. Visit the NetWorker VE Marketplace Page (search for "Dell EMC NetWorker" in AWS Marketplace)
+1. Visit the [NetWorker VE Marketplace Page](https://aws.amazon.com/marketplace/pp/prodview-34uq7mzbzj4c4)
 2. Click "Continue to Subscribe"
 3. Accept the terms and conditions
 4. Wait for subscription to be processed

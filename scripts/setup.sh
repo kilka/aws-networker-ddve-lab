@@ -195,9 +195,9 @@ check_marketplace_subscriptions() {
     
     echo -e "\n${YELLOW}IMPORTANT: You must subscribe to these AWS Marketplace products:${NC}"
     echo -e "1. Dell EMC Data Domain Virtual Edition (DDVE):"
-    echo -e "   ${BLUE}https://aws.amazon.com/marketplace/pp/prodview-qcmtvuqexqmzw${NC}"
+    echo -e "   ${BLUE}https://aws.amazon.com/marketplace/pp/prodview-2x2p43yvgswtm${NC}"
     echo -e "2. Dell EMC NetWorker Virtual Edition:"
-    echo -e "   ${BLUE}https://aws.amazon.com/marketplace/pp/prodview-4gm7ncqvfwixw${NC}"
+    echo -e "   ${BLUE}https://aws.amazon.com/marketplace/pp/prodview-34uq7mzbzj4c4${NC}"
     echo -e "\n${YELLOW}Press Enter after subscribing to continue...${NC}"
     read -r
 }
