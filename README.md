@@ -7,8 +7,8 @@ Automated deployment of Dell EMC NetWorker and Data Domain Virtual Edition (DDVE
 ### AWS Marketplace Subscriptions
 
 For  deployment in us-east-1, subscribe to these free marketplace listings:
-- [Dell EMC Data Domain Virtual Edition (DDVE)](https://aws.amazon.com/marketplace/pp/prodview-qcmtvuqexqmzw)
-- [Dell EMC NetWorker Virtual Edition](https://aws.amazon.com/marketplace/pp/prodview-4gm7ncqvfwixw)
+- [Dell EMC Data Domain Virtual Edition (DDVE)](https://aws.amazon.com/marketplace/pp/prodview-2x2p43yvgswtm)
+- [Dell EMC NetWorker Virtual Edition](https://aws.amazon.com/marketplace/pp/prodview-34uq7mzbzj4c4)
 
 - **AWS Account** with billing enabled
 - **AWS CLI** configured with credentials (`aws configure`)
