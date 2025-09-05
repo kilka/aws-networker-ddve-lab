@@ -1,0 +1,202 @@
+# AWS Data Protection Lab - Combined Deployment Makefile
+# Deploy Avamar, PowerProtect Data Manager, and Data Domain Virtual Edition
+
+SHELL := /bin/bash
+.PHONY: help deploy destroy validate plan configure stop start status
+
+# Color definitions
+GREEN := \033[0;32m
+YELLOW := \033[0;33m
+RED := \033[0;31m
+NC := \033[0m
+
+# Project variables
+PROJECT_NAME := dataprotection-lab
+AWS_REGION ?= us-east-1
+TERRAFORM_DIR := ./terraform-combined
+ANSIBLE_DIR := ./ansible-combined
+KEY_NAME := aws_key
+KEY_PATH := ./$(KEY_NAME)
+LOG_DIR := ./logs
+
+# Logging function
+define run_with_logs
+	@mkdir -p $(LOG_DIR)
+	@echo "$(GREEN)Running $(1) - Log: $(LOG_DIR)/$(1).log$(NC)"
+	@{ $(2) 2>&1 | tee $(LOG_DIR)/$(1).log; } 2>&1
+endef
+
+help:
+	@echo "$(GREEN)AWS Data Protection Lab - Combined Deployment$(NC)"
+	@echo ""
+	@echo "Quick Start:"
+	@echo "  $(YELLOW)make setup$(NC)        - Generate keys and create tfvars"
+	@echo "  $(YELLOW)make deploy$(NC)       - Deploy all infrastructure"
+	@echo "  $(YELLOW)make configure$(NC)    - Configure products via Ansible"
+	@echo ""
+	@echo "Main Targets:"
+	@echo "  $(YELLOW)setup$(NC)         - Generate SSH keys and tfvars template"
+	@echo "  $(YELLOW)validate$(NC)      - Validate Terraform configuration"
+	@echo "  $(YELLOW)plan$(NC)          - Show infrastructure changes"
+	@echo "  $(YELLOW)deploy$(NC)        - Deploy infrastructure (DDVE + optional Avamar/PPDM)"
+	@echo "  $(YELLOW)configure$(NC)     - Run Ansible configuration"
+	@echo "  $(YELLOW)destroy$(NC)       - Destroy all resources"
+	@echo "  $(YELLOW)stop$(NC)          - Stop all instances (save costs)"
+	@echo "  $(YELLOW)start$(NC)         - Start all instances"
+	@echo "  $(YELLOW)status$(NC)        - Show deployment status"
+	@echo "  $(YELLOW)get-windows-password$(NC) - Get Windows client Administrator password"
+	@echo ""
+	@echo "Deployment Options (in terraform.tfvars):"
+	@echo "  deploy_avamar = true/false"
+	@echo "  deploy_powerprotect = true/false"
+	@echo ""
+	@echo "Individual Deployments:"
+	@echo "  $(YELLOW)deploy-ddve$(NC)   - Deploy only DDVE"
+	@echo "  $(YELLOW)deploy-all$(NC)    - Deploy all products"
+	@echo ""
+	@echo "Cost Management:"
+	@echo "  $(YELLOW)cost-estimate$(NC) - Estimate monthly costs"
+
+# Setup SSH keys and tfvars
+setup:
+	@echo "$(GREEN)Setting up Data Protection Lab...$(NC)"
+	@if [ ! -f "$(KEY_PATH)" ]; then \
+		echo "Generating SSH key pair..."; \
+		ssh-keygen -t rsa -b 4096 -f $(KEY_PATH) -N "" -C "$(PROJECT_NAME)-key"; \
+		chmod 600 $(KEY_PATH); \
+		chmod 644 $(KEY_PATH).pub; \
+	else \
+		echo "SSH key already exists at $(KEY_PATH)"; \
+	fi
+	@if [ ! -f "$(TERRAFORM_DIR)/terraform.tfvars" ]; then \
+		echo "Creating terraform.tfvars..."; \
+		MY_IP=$$(curl -s https://api.ipify.org); \
+		echo "admin_ip = \"$$MY_IP/32\"" > $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "key_name = \"aws_key\"" >> $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "" >> $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "# Deployment options" >> $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "deploy_avamar = true" >> $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "deploy_powerprotect = true" >> $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "" >> $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "# Instance types (cost optimization)" >> $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "ddve_instance_type = \"m5.xlarge\"" >> $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "avamar_instance_type = \"m5.2xlarge\"" >> $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "ppdm_instance_type = \"m5.2xlarge\"" >> $(TERRAFORM_DIR)/terraform.tfvars; \
+		echo "$(GREEN)Created terraform.tfvars with your IP: $$MY_IP$(NC)"; \
+	else \
+		echo "terraform.tfvars already exists"; \
+	fi
+
+# Validate Terraform
+validate:
+	@echo "$(GREEN)Validating Terraform configuration...$(NC)"
+	@cd $(TERRAFORM_DIR) && terraform init -backend=false
+	@cd $(TERRAFORM_DIR) && terraform validate
+
+# Plan deployment
+plan:
+	@echo "$(GREEN)Planning infrastructure deployment...$(NC)"
+	@cd $(TERRAFORM_DIR) && terraform init -upgrade
+	@cd $(TERRAFORM_DIR) && terraform plan
+
+# Deploy infrastructure
+deploy:
+	@echo "$(GREEN)Deploying Data Protection Lab infrastructure...$(NC)"
+	$(call run_with_logs,deploy,cd $(TERRAFORM_DIR) && terraform init -upgrade && \
+		terraform apply -auto-approve)
+	@echo ""
+	@echo "$(GREEN)Infrastructure deployed! Run 'make configure' to configure products.$(NC)"
+
+# Configure with Ansible
+configure:
+	@echo "$(GREEN)Configuring Data Protection products...$(NC)"
+	$(call run_with_logs,configure,cd $(ANSIBLE_DIR) && \
+		ansible-playbook -i inventory/hosts playbooks/site.yml)
+
+# Deploy only DDVE
+deploy-ddve:
+	@echo "$(GREEN)Deploying only DDVE...$(NC)"
+	@cd $(TERRAFORM_DIR) && terraform apply -auto-approve \
+		-var="deploy_avamar=false" \
+		-var="deploy_powerprotect=false"
+
+# Deploy all products
+deploy-all:
+	@echo "$(GREEN)Deploying all products...$(NC)"
+	@cd $(TERRAFORM_DIR) && terraform apply -auto-approve \
+		-var="deploy_avamar=true" \
+		-var="deploy_powerprotect=true"
+
+# Stop instances
+stop:
+	@echo "$(GREEN)Stopping all instances...$(NC)"
+	@INSTANCE_IDS=$$(cd $(TERRAFORM_DIR) && terraform output -json 2>/dev/null | \
+		jq -r '[.ddve_instance_id.value, .avamar_instance_id.value, .ppdm_instance_id.value, .linux_client_instance_id.value, .windows_client_instance_id.value] | map(select(. != null)) | .[]' 2>/dev/null); \
+	if [ -n "$$INSTANCE_IDS" ]; then \
+		aws ec2 stop-instances --instance-ids $$INSTANCE_IDS --region $(AWS_REGION); \
+		echo "$(GREEN)Instances stopped$(NC)"; \
+	else \
+		echo "$(YELLOW)No instances found$(NC)"; \
+	fi
+
+# Start instances
+start:
+	@echo "$(GREEN)Starting all instances...$(NC)"
+	@INSTANCE_IDS=$$(cd $(TERRAFORM_DIR) && terraform output -json 2>/dev/null | \
+		jq -r '[.ddve_instance_id.value, .avamar_instance_id.value, .ppdm_instance_id.value, .linux_client_instance_id.value, .windows_client_instance_id.value] | map(select(. != null)) | .[]' 2>/dev/null); \
+	if [ -n "$$INSTANCE_IDS" ]; then \
+		aws ec2 start-instances --instance-ids $$INSTANCE_IDS --region $(AWS_REGION); \
+		echo "$(GREEN)Instances started$(NC)"; \
+	else \
+		echo "$(YELLOW)No instances found$(NC)"; \
+	fi
+
+# Get Windows password
+get-windows-password:
+	@echo "$(GREEN)Retrieving Windows Administrator password...$(NC)"
+	@WIN_ID=$$(cd $(TERRAFORM_DIR) && terraform output -raw windows_client_instance_id 2>/dev/null); \
+	if [ -n "$$WIN_ID" ] && [ "$$WIN_ID" != "null" ]; then \
+		aws ec2 get-password-data --instance-id $$WIN_ID --priv-launch-key $(KEY_PATH) --region $(AWS_REGION) | jq -r '.PasswordData'; \
+	else \
+		echo "$(YELLOW)No Windows instance found$(NC)"; \
+	fi
+
+# Show status
+status:
+	@echo "$(GREEN)Data Protection Lab Status:$(NC)"
+	@cd $(TERRAFORM_DIR) && terraform output 2>/dev/null || echo "No deployment found"
+
+# Cost estimate
+cost-estimate:
+	@echo "$(GREEN)Estimated Monthly Costs:$(NC)"
+	@echo "  DDVE (m5.xlarge):        ~$$140/month"
+	@echo "  Avamar (m4.xlarge):      ~$$145/month"
+	@echo "  PPDM (m5.2xlarge):       ~$$280/month"
+	@echo "  Linux Client (t3.small): ~$$15/month"
+	@echo "  Windows Client (t3.med): ~$$30/month"
+	@echo "  Storage (EBS+S3):        ~$$100-200/month"
+	@echo "  $(YELLOW)Total (all products):    ~$$710-810/month$(NC)"
+	@echo ""
+	@echo "  $(GREEN)DDVE only + clients:     ~$$285/month$(NC)"
+	@echo ""
+	@echo "  💡 Use 'make stop' when not in use to save costs"
+
+# Destroy infrastructure
+destroy:
+	@echo "$(RED)WARNING: This will destroy all Data Protection Lab resources$(NC)"
+	@read -p "Are you sure? Type 'yes' to confirm: " confirm && \
+	if [ "$$confirm" = "yes" ]; then \
+		cd $(TERRAFORM_DIR) && terraform destroy -auto-approve; \
+		echo "$(GREEN)Infrastructure destroyed$(NC)"; \
+	else \
+		echo "$(YELLOW)Destroy cancelled$(NC)"; \
+	fi
+
+# Clean logs
+clean:
+	@echo "$(GREEN)Cleaning temporary files...$(NC)"
+	@rm -rf $(LOG_DIR)
+	@rm -rf $(TERRAFORM_DIR)/.terraform
+	@rm -f $(TERRAFORM_DIR)/.terraform.lock.hcl
+	@rm -f $(TERRAFORM_DIR)/terraform.tfstate*
+	@echo "$(GREEN)Cleanup complete$(NC)"

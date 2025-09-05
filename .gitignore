@@ -5,12 +5,18 @@ aws_key*
 *.pub
 !aws_key.pub.example
 
+# Proprietary Software
+fsagent*.tar.gz
+fsagent*.zip
+ntx64/
+
 # Terraform State Files
 *.tfstate
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
 terraform.tfvars
+**/*.tfvars
 *.auto.tfvars
 
 # Ansible

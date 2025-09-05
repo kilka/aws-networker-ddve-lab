@@ -1,0 +1,80 @@
+# PowerProtect Data Manager Terraform Variables
+# Copy this file to terraform.tfvars and customize for your environment
+
+# Project Configuration
+project_name = "aws-ppdm-lab"
+environment  = "dev"
+aws_region   = "us-east-1"
+
+# Network Configuration
+vpc_cidr    = "10.1.0.0/16"
+subnet_cidr = "10.1.1.0/24"
+
+# Security - IMPORTANT: Update with your actual IP for security
+admin_ip_cidrs = ["YOUR.IP.ADDRESS.HERE/32"]  # Replace with your public IP
+key_name       = "ppdm_key"
+public_key_path = "../aws_key.pub"
+
+# Instance Configuration
+instance_type     = "m5.2xlarge"  # Minimum recommended for PPDM
+assign_public_ip  = true
+
+# PPDM Configuration
+auto_configure    = true
+timezone         = "America/New_York"
+ntp_server       = "pool.ntp.org"
+dns_server       = "8.8.8.8"
+common_password  = "Changeme123!"  # Change this in production
+
+# AMI Configuration
+use_marketplace_ami = false  # Set to true after subscribing to PPDM marketplace
+
+# Storage Configuration (adjust based on your needs)
+storage_sizes = {
+  root = 250
+  additional_volumes = [
+    {
+      name        = "data1"
+      device_name = "/dev/sdf"
+      size        = 500
+    },
+    {
+      name        = "data2"
+      device_name = "/dev/sdg"
+      size        = 500
+    },
+    {
+      name        = "data3"
+      device_name = "/dev/sdh"
+      size        = 500
+    },
+    {
+      name        = "data4"
+      device_name = "/dev/sdi"
+      size        = 500
+    },
+    {
+      name        = "data5"
+      device_name = "/dev/sdj"
+      size        = 500
+    },
+    {
+      name        = "data6"
+      device_name = "/dev/sdk"
+      size        = 500
+    }
+  ]
+}
+
+# Cost Optimization (for testing only)
+use_spot_instance = false  # Set to true for cost savings (not recommended for production)
+spot_price       = "0.60"
+
+# Resource Tagging
+common_tags = {
+  ManagedBy   = "Terraform"
+  Environment = "dev"
+  Purpose     = "PPDM Lab"
+  Application = "PowerProtect"
+  Owner       = "YourName"  # Add your name
+}

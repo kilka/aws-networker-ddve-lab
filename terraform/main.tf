@@ -39,13 +39,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "ddve_cloud_tier" 
   }
 }
 
-resource "aws_s3_bucket_versioning" "ddve_cloud_tier" {
-  bucket = aws_s3_bucket.ddve_cloud_tier.id
-
-  versioning_configuration {
-    status = var.enable_s3_versioning ? "Enabled" : "Suspended"
-  }
-}
+# Versioning removed - not needed for this lab environment
 
 resource "aws_s3_bucket_public_access_block" "ddve_cloud_tier" {
   bucket = aws_s3_bucket.ddve_cloud_tier.id
@@ -68,21 +62,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "ddve_cloud_tier" {
     transition {
       days          = 30
       storage_class = "STANDARD_IA"
-    }
-  }
-
-  # Clean up old versions if versioning is enabled
-  dynamic "rule" {
-    for_each = var.enable_s3_versioning ? [1] : []
-    content {
-      id     = "expire-old-versions"
-      status = "Enabled"
-
-      filter {}
-
-      noncurrent_version_expiration {
-        noncurrent_days = 90
-      }
     }
   }
 }

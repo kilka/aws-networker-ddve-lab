@@ -1,0 +1,33 @@
+# AWS Data Protection Lab - Terraform Variables
+# Copy this file to terraform.tfvars and customize
+
+# Required: Your admin IP for security group access
+admin_ip = "YOUR_IP_ADDRESS/32"
+
+# Required: EC2 key pair name
+key_name = "aws_key"
+
+# AWS Region
+region = "us-east-1"
+
+# Environment name
+environment = "dataprotection-lab"
+
+# Deployment Options
+deploy_avamar = true        # Set to false to skip Avamar
+deploy_powerprotect = true  # Set to false to skip PowerProtect
+deploy_test_clients = true # Set to false to skip test clients
+
+# Instance Types (production sizing - matching working configs)
+ddve_instance_type = "m5.xlarge"     # Data Domain Virtual Edition
+avamar_instance_type = "m4.xlarge"   # Avamar Virtual Edition
+ppdm_instance_type = "m5.2xlarge"    # PowerProtect Data Manager (via CloudFormation)
+
+# Test Client Instance Types
+linux_client_instance_type = "t3.small"   # Linux test client
+windows_client_instance_type = "t3.medium" # Windows test client
+
+# Network Configuration
+vpc_cidr = "10.0.0.0/16"
+public_cidr = "10.0.1.0/24"
+zone_name = "dataprotection.lab"

@@ -1,0 +1,63 @@
+---
+# Main playbook to configure all data protection products
+- name: Configure Data Protection Lab
+  hosts: localhost
+  gather_facts: yes
+  vars:
+    terraform_output: "{{ lookup('file', '../../terraform-combined/terraform.tfstate') | from_json }}"
+    ddve_ip: "{{ terraform_output.outputs.ddve_public_ip.value }}"
+    ddve_instance_id: "{{ terraform_output.outputs.ddve_instance_id.value }}"
+    avamar_ip: "{{ terraform_output.outputs.avamar_public_ip.value | default(omit) }}"
+    ppdm_ip: "{{ terraform_output.outputs.powerprotect_public_ip.value | default(omit) }}"
+    ddve_private_ip: "{{ terraform_output.outputs.ddve_private_ip.value }}"
+    avamar_private_ip: "{{ terraform_output.outputs.avamar_private_ip.value | default(omit) }}"
+    ppdm_private_ip: "{{ terraform_output.outputs.powerprotect_private_ip.value | default(omit) }}"
+    s3_bucket: "{{ terraform_output.outputs.s3_bucket_name.value }}"
+
+  tasks:
+    - name: Configure DDVE
+      include_role:
+        name: ddve
+      vars:
+        ddve_host: "{{ ddve_ip }}"
+        instance_id: "{{ ddve_instance_id }}"
+        ddve_s3_bucket: "{{ s3_bucket }}"
+      when: ddve_ip is defined
+
+    - name: Configure Avamar
+      include_role:
+        name: avamar
+      vars:
+        avamar_host: "{{ avamar_ip }}"
+        ddve_host_private: "{{ ddve_private_ip }}"
+      when: avamar_ip is defined and avamar_ip != None
+
+    - name: Configure PowerProtect Data Manager
+      include_role:
+        name: ppdm
+      vars:
+        ppdm_host: "{{ ppdm_ip }}"
+        ddve_host_private: "{{ ddve_private_ip }}"
+      when: ppdm_ip is defined and ppdm_ip != None
+
+    - name: Display access information
+      debug:
+        msg:
+          - "=== Data Protection Lab Access Information ==="
+          - "DDVE Console: https://{{ ddve_ip }}"
+          - "  Username: sysadmin"
+          - "  Password: Changeme123!"
+          - ""
+          - "{% if avamar_ip is defined and avamar_ip != None %}Avamar Console: https://{{ avamar_ip }}{% endif %}"
+          - "{% if avamar_ip is defined and avamar_ip != None %}  Administrator: https://{{ avamar_ip }}:8443/avi{% endif %}"
+          - "{% if avamar_ip is defined and avamar_ip != None %}  Username: root{% endif %}"
+          - "{% if avamar_ip is defined and avamar_ip != None %}  Password: Changeme123!{% endif %}"
+          - ""
+          - "{% if ppdm_ip is defined and ppdm_ip != None %}PowerProtect Console: https://{{ ppdm_ip }}:14443{% endif %}"
+          - "{% if ppdm_ip is defined and ppdm_ip != None %}  Username: admin{% endif %}"
+          - "{% if ppdm_ip is defined and ppdm_ip != None %}  Password: Changeme123!{% endif %}"
+          - ""
+          - "Internal DNS Names:"
+          - "  DDVE: ddve.dataprotection.lab ({{ ddve_private_ip }})"
+          - "{% if avamar_private_ip is defined and avamar_private_ip != None %}  Avamar: avamar.dataprotection.lab ({{ avamar_private_ip }}){% endif %}"
+          - "{% if ppdm_private_ip is defined and ppdm_private_ip != None %}  PPDM: ppdm.dataprotection.lab ({{ ppdm_private_ip }}){% endif %}"

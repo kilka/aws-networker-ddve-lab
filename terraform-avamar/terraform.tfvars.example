@@ -1,0 +1,49 @@
+# Avamar Virtual Edition Configuration Template
+# Copy this file to terraform.tfvars and customize for your deployment
+
+# Project Configuration
+project_name = "aws-avamar-lab"
+environment  = "dev"
+aws_region   = "us-east-1"
+
+# Network Configuration
+vpc_cidr              = "10.2.0.0/16"
+public_subnet_cidr    = "10.2.1.0/24"
+private_subnet_cidr   = "10.2.2.0/24"
+assign_public_ip      = true
+
+# Instance Configuration
+avamar_ami    = "ami-07fbfe86046159cc0"  # Avamar VE AMI for us-east-1
+instance_type = "m4.xlarge"
+
+# Storage Configuration (minimum requirements)
+root_disk_size  = 161   # GB (minimum for Avamar AMI)
+data_disk_size  = 250   # GB (minimum per Avamar requirements)
+data_disk_count = 3     # minimum required
+
+# Security Configuration
+# IMPORTANT: Replace with your actual IP address for security
+admin_ip_cidrs = [
+  "0.0.0.0/0"  # Replace with your IP: "YOUR.IP.ADDRESS/32"
+]
+
+# SSH Key Configuration
+key_name        = "avamar_key"
+public_key_path = "../aws_key.pub"
+
+# Access Configuration
+assign_public_ip = true   # Direct public IP access
+create_bastion   = false  # Not needed with public IP access
+
+# Resource Tagging
+common_tags = {
+  ManagedBy   = "Terraform"
+  Environment = "dev"
+  Purpose     = "Avamar Lab"
+  Application = "Avamar VE"
+  Owner       = "YourName"
+}
+
+# Optional: Backup Configuration
+enable_daily_snapshots   = true
+snapshot_retention_days  = 7

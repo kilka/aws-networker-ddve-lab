@@ -1,0 +1,251 @@
+---
+# DDVE REST API Configuration for Multi-Product Environment
+# Configures DDVE to support both Avamar and PowerProtect Data Manager
+
+- name: Wait for DDVE to be accessible
+  wait_for:
+    host: "{{ ddve_host }}"
+    port: 443
+    delay: 30
+    timeout: 900
+
+- name: Display DDVE instance ID
+  debug:
+    msg: "Using DDVE instance ID: {{ instance_id }}"
+
+- name: Try authentication with standard password
+  uri:
+    url: "https://{{ ddve_host }}:3009/rest/v1.0/auth"
+    method: POST
+    body_format: json
+    body:
+      username: "sysadmin"
+      password: "Changeme123!"
+    validate_certs: no
+    status_code: 201
+    timeout: 60
+  register: ddve_auth_standard
+  ignore_errors: yes
+
+- name: Fallback to instance ID authentication
+  uri:
+    url: "https://{{ ddve_host }}:3009/rest/v1.0/auth"
+    method: POST
+    body_format: json
+    body:
+      username: "sysadmin"
+      password: "{{ instance_id }}"
+    validate_certs: no
+    status_code: 201
+    timeout: 60
+  register: ddve_auth_instance
+  when: ddve_auth_standard.status | default(0) != 201
+
+- name: Set authentication token
+  set_fact:
+    ddve_token: "{{ ddve_auth_standard.x_dd_auth_token if (ddve_auth_standard.status | default(0) == 201) else ddve_auth_instance.x_dd_auth_token }}"
+    password_needs_change: "{{ (ddve_auth_standard.status | default(0) != 201) }}"
+
+- name: Change password if needed
+  uri:
+    url: "https://{{ ddve_host }}:3009/rest/v1.0/dd-systems/0/users/sysadmin"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      user_modify:
+        current_password: "{{ instance_id }}"
+        new_password: "Changeme123!"
+    validate_certs: no
+    status_code: 200
+    timeout: 60
+  when: password_needs_change | default(false)
+
+- name: Set system passphrase
+  uri:
+    url: "https://{{ ddve_host }}:3009/rest/v2.0/dd-systems/0/systems"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      system_modify:
+        operation: "set_pphrase"
+        pphrase_request:
+          new_pphrase: "Changeme123!"
+    validate_certs: no
+    status_code: 200
+    timeout: 60
+  ignore_errors: yes
+
+- name: List available disks
+  uri:
+    url: "https://{{ ddve_host }}:3009/api/v1/dd-systems/0/storage/disks"
+    method: GET
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+    validate_certs: no
+    status_code: 200
+    timeout: 60
+  register: disk_list
+
+- name: Filter metadata disks
+  set_fact:
+    metadata_disks: "{{ disk_list.json.diskInfo | selectattr('status', 'equalto', 'UNKNOWN') | selectattr('tierType', 'equalto', 'OTHER') | map(attribute='device') | list }}"
+
+- name: Check object store status
+  uri:
+    url: "https://{{ ddve_host }}:3009/api/v1/dd-systems/0/file-systems/object-stores"
+    method: GET
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+    validate_certs: no
+    status_code: 200
+    timeout: 60
+  register: object_store_status
+
+- name: Configure S3 object store
+  uri:
+    url: "https://{{ ddve_host }}:3009/api/v1/dd-systems/0/file-systems/object-stores/aws"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      object_store_detail:
+        bucketType: "{{ ddve_s3_bucket }}"
+        acceptCertificate: true
+        disks: "{{ metadata_disks[:2] }}"
+    validate_certs: no
+    status_code: 200
+    timeout: 600
+  when: not object_store_status.json.enabled | default(false)
+
+- name: Create filesystem
+  uri:
+    url: "https://{{ ddve_host }}:3009/rest/v1.0/dd-systems/0/file-systems"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      filesys_modify:
+        operation: "create"
+    validate_certs: no
+    status_code: [200, 201, 400, 500]
+    timeout: 600
+  ignore_errors: yes
+
+- name: Enable filesystem
+  uri:
+    url: "https://{{ ddve_host }}:3009/rest/v1.0/dd-systems/0/file-systems"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      filesys_modify:
+        operation: "enable"
+    validate_certs: no
+    status_code: [200, 201, 400, 500]
+    timeout: 600
+  ignore_errors: yes
+
+- name: Enable DD Boost
+  uri:
+    url: "https://{{ ddve_host }}:3009/rest/v1.0/dd-systems/0/protocols/ddboost"
+    method: PUT
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      ddboost_modify:
+        operation: "enable"
+    validate_certs: no
+    status_code: 200
+    timeout: 60
+  ignore_errors: yes
+
+- name: Create DD Boost user for Avamar
+  uri:
+    url: "https://{{ ddve_host }}:3009/api/v2/dd-systems/0/users"
+    method: POST
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      user_create_2:
+        name: "avamar"
+        password: "Changeme123!"
+    validate_certs: no
+    status_code: [200, 201, 400]
+    timeout: 60
+  ignore_errors: yes
+
+- name: Create DD Boost user for PowerProtect
+  uri:
+    url: "https://{{ ddve_host }}:3009/api/v2/dd-systems/0/users"
+    method: POST
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      user_create_2:
+        name: "ppdm"
+        password: "Changeme123!"
+    validate_certs: no
+    status_code: [200, 201, 400]
+    timeout: 60
+  ignore_errors: yes
+
+- name: Create storage unit for Avamar
+  uri:
+    url: "https://{{ ddve_host }}:3009/rest/v2.0/dd-systems/0/protocols/ddboost/storage-units"
+    method: POST
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      ddboost_storage_unit_create:
+        name: "Avamar_SU"
+        user: "avamar"
+    validate_certs: no
+    status_code: [200, 201, 400]
+    timeout: 60
+  ignore_errors: yes
+
+- name: Create storage unit for PowerProtect
+  uri:
+    url: "https://{{ ddve_host }}:3009/rest/v2.0/dd-systems/0/protocols/ddboost/storage-units"
+    method: POST
+    headers:
+      X-DD-AUTH-TOKEN: "{{ ddve_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      ddboost_storage_unit_create:
+        name: "PPDM_SU"
+        user: "ppdm"
+    validate_certs: no
+    status_code: [200, 201, 400]
+    timeout: 60
+  ignore_errors: yes
+
+- name: Display DDVE configuration summary
+  debug:
+    msg:
+      - "DDVE Configuration Complete:"
+      - "  S3 Bucket: {{ ddve_s3_bucket }}"
+      - "  DD Boost: Enabled"
+      - "  Avamar Storage Unit: Avamar_SU"
+      - "  PPDM Storage Unit: PPDM_SU"

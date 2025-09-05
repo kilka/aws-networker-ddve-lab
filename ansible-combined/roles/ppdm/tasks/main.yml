@@ -1,0 +1,28 @@
+---
+# PowerProtect Data Manager Configuration Role
+# Basic setup for PPDM integration with DDVE
+
+- name: Wait for PPDM to be accessible
+  wait_for:
+    host: "{{ ppdm_host }}"
+    port: 14443
+    delay: 60
+    timeout: 1800
+
+- name: Display PPDM configuration info
+  debug:
+    msg:
+      - "PowerProtect Data Manager Configuration:"
+      - "  Host: {{ ppdm_host }}"
+      - "  DDVE Host: {{ ddve_host_private }}"
+      - "  Initial setup must be done via GUI"
+      - "  Access URL: https://{{ ppdm_host }}:14443"
+      - ""
+      - "Manual Configuration Steps:"
+      - "1. Complete initial PPDM setup wizard"
+      - "2. Add Protection Storage:"
+      - "   - Type: Data Domain"
+      - "   - Host: ddve.dataprotection.lab"
+      - "   - User: ppdm"
+      - "   - Password: Changeme123!"
+      - "   - Storage Unit: PPDM_SU"

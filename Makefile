@@ -14,6 +14,8 @@ NC := \033[0m # No Color
 PROJECT_NAME := aws-networker-lab
 AWS_REGION ?= us-east-1
 TERRAFORM_DIR := ./terraform
+TERRAFORM_PPDM_DIR := ./terraform-ppdm
+TERRAFORM_AVAMAR_DIR := ./terraform-avamar
 ANSIBLE_DIR := ./ansible
 KEY_NAME := aws_key
 KEY_PATH := ./$(KEY_NAME)
@@ -60,6 +62,16 @@ help:
 	@echo "  $(YELLOW)test-ddve-infra$(NC) - Deploy only DDVE infrastructure (no config)"
 	@echo "  $(YELLOW)test-networker$(NC) - Deploy only NetWorker for testing"
 	@echo "  $(YELLOW)destroy-test$(NC)  - Destroy test resources"
+	@echo ""
+	@echo "PowerProtect Data Manager targets:"
+	@echo "  $(YELLOW)powerprotect$(NC)  - Deploy PowerProtect Data Manager (PPDM)"
+	@echo "  $(YELLOW)powerprotect-plan$(NC) - Plan PPDM deployment"
+	@echo "  $(YELLOW)destroy-powerprotect$(NC) - Destroy PPDM resources"
+	@echo ""
+	@echo "Avamar Virtual Edition targets:"
+	@echo "  $(YELLOW)avamar$(NC)        - Deploy Avamar Virtual Edition (private subnet)"
+	@echo "  $(YELLOW)avamar-plan$(NC)   - Plan Avamar deployment"
+	@echo "  $(YELLOW)destroy-avamar$(NC) - Destroy Avamar resources"
 	@echo ""
 	@echo "Utility targets:"
 	@echo "  $(YELLOW)get-windows-password$(NC) - Retrieve Windows Administrator password"
@@ -339,5 +351,162 @@ get-windows-password:
 		echo "$(GREEN)Windows Administrator Password: $$PASSWORD$(NC)"; \
 		echo "$(YELLOW)Update your Ansible inventory with:$(NC)"; \
 		echo "ansible_password: \"$$PASSWORD\""; \
+	fi
+
+# PowerProtect Data Manager Targets
+powerprotect-plan:
+	@echo "$(GREEN)Planning PowerProtect Data Manager deployment...$(NC)"
+	@if [ ! -f "$(KEY_PATH).pub" ]; then \
+		echo "$(RED)❌ SSH public key not found$(NC)"; \
+		echo "$(YELLOW)💡 Run: make setup-keys$(NC)"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(TERRAFORM_PPDM_DIR)/terraform.tfvars" ]; then \
+		echo "$(RED)❌ terraform.tfvars not found in terraform-ppdm directory$(NC)"; \
+		echo "$(YELLOW)💡 Copy and edit terraform.tfvars.example$(NC)"; \
+		exit 1; \
+	fi
+	@cd $(TERRAFORM_PPDM_DIR) && terraform init -upgrade && terraform plan
+
+powerprotect:
+	@echo "$(GREEN)🚀 PowerProtect Data Manager - Complete Deployment$(NC)"
+	@echo "$(YELLOW)This will deploy PPDM infrastructure in AWS$(NC)"
+	@echo ""
+	@if [ ! -f "$(KEY_PATH).pub" ]; then \
+		echo "$(RED)❌ SSH public key not found$(NC)"; \
+		echo "$(YELLOW)💡 Run: make setup-keys$(NC)"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(TERRAFORM_PPDM_DIR)/terraform.tfvars" ]; then \
+		echo "$(RED)❌ terraform.tfvars not found in terraform-ppdm directory$(NC)"; \
+		echo "$(YELLOW)💡 Copy and edit: cp $(TERRAFORM_PPDM_DIR)/terraform.tfvars.example $(TERRAFORM_PPDM_DIR)/terraform.tfvars$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)✅ Prerequisites check passed$(NC)"
+	@echo ""
+	$(call run_with_logs,powerprotect,\
+		echo "$(GREEN)🏗️  Deploying PowerProtect Data Manager Infrastructure$(NC)" && \
+		cd $(TERRAFORM_PPDM_DIR) && \
+			terraform init -upgrade && \
+			terraform apply -auto-approve && \
+		echo "$(GREEN)🎉 PPDM deployment completed successfully!$(NC)" && \
+		echo "$(YELLOW)📋 Deployment Information:$(NC)" && \
+		terraform output deployment_info \
+	)
+
+destroy-powerprotect:
+	@echo "$(RED)WARNING: This will destroy all PowerProtect Data Manager resources!$(NC)"
+	@read -p "Are you sure? Type 'yes' to confirm: " confirm && \
+	if [ "$$confirm" = "yes" ]; then \
+		mkdir -p $(LOG_DIR); \
+		echo "$(GREEN)Running PPDM destroy - Full log: $(LOG_DIR)/destroy-powerprotect.log$(NC)"; \
+		{ \
+			echo "$(YELLOW)Destroying PPDM infrastructure...$(NC)" && \
+			cd $(TERRAFORM_PPDM_DIR) && terraform destroy -auto-approve && \
+			echo "$(GREEN)PPDM infrastructure destroyed successfully$(NC)"; \
+		} 2>&1 | tee $(LOG_DIR)/destroy-powerprotect.log; \
+		grep -E '(ERROR|error|Error|FAILED|failed|Failed|FATAL|fatal|Fatal|WARNING|warning|Warning)' $(LOG_DIR)/destroy-powerprotect.log > $(LOG_DIR)/destroy-powerprotect-errors.log 2>/dev/null || echo "No errors detected" > $(LOG_DIR)/destroy-powerprotect-errors.log; \
+		echo "$(GREEN)Operation complete. Logs saved to $(LOG_DIR)/destroy-powerprotect.log and $(LOG_DIR)/destroy-powerprotect-errors.log$(NC)"; \
+	else \
+		echo "$(YELLOW)Destruction cancelled$(NC)"; \
+	fi
+
+# Avamar Virtual Edition Targets
+avamar-plan:
+	@echo "$(GREEN)Planning Avamar Virtual Edition deployment...$(NC)"
+	@if [ ! -f "$(KEY_PATH).pub" ]; then \
+		echo "$(RED)❌ SSH public key not found$(NC)"; \
+		echo "$(YELLOW)💡 Run: make setup-keys$(NC)"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(TERRAFORM_AVAMAR_DIR)/terraform.tfvars" ]; then \
+		echo "$(RED)❌ terraform.tfvars not found in terraform-avamar directory$(NC)"; \
+		echo "$(YELLOW)💡 Copy and edit terraform.tfvars.example$(NC)"; \
+		exit 1; \
+	fi
+	@cd $(TERRAFORM_AVAMAR_DIR) && terraform init -upgrade && terraform plan
+
+avamar:
+	@echo "$(GREEN)🚀 Avamar Virtual Edition - Complete Deployment$(NC)"
+	@echo "$(YELLOW)This will deploy Avamar VE infrastructure in a private subnet$(NC)"
+	@echo ""
+	@if [ ! -f "$(KEY_PATH).pub" ]; then \
+		echo "$(RED)❌ SSH public key not found$(NC)"; \
+		echo "$(YELLOW)💡 Run: make setup-keys$(NC)"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(TERRAFORM_AVAMAR_DIR)/terraform.tfvars" ]; then \
+		echo "$(RED)❌ terraform.tfvars not found in terraform-avamar directory$(NC)"; \
+		echo "$(YELLOW)💡 Copy and edit: cp $(TERRAFORM_AVAMAR_DIR)/terraform.tfvars.example $(TERRAFORM_AVAMAR_DIR)/terraform.tfvars$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)✅ Prerequisites check passed$(NC)"
+	@echo ""
+	$(call run_with_logs,avamar,\
+		echo "$(GREEN)🏗️  Deploying Avamar Virtual Edition Infrastructure$(NC)" && \
+		cd $(TERRAFORM_AVAMAR_DIR) && \
+			terraform init -upgrade && \
+			terraform apply -auto-approve && \
+		echo "$(YELLOW)📋 Initial Deployment Information:$(NC)" && \
+		terraform output deployment_info && \
+		AVAMAR_IP=$$(terraform output -raw avamar_public_ip) && \
+		echo "" && \
+		echo "$(GREEN)⏳ Waiting for Avamar instance to become ready...$(NC)" && \
+		echo "$(YELLOW)   This typically takes 5-10 minutes$(NC)" && \
+		ATTEMPTS=0 && \
+		MAX_ATTEMPTS=60 && \
+		while [ $$ATTEMPTS -lt $$MAX_ATTEMPTS ]; do \
+			if nc -zv $$AVAMAR_IP 443 2>/dev/null; then \
+				echo "" && \
+				echo "$(GREEN)✅ Avamar instance is responding on HTTPS!$(NC)" && \
+				break; \
+			fi; \
+			if [ $$ATTEMPTS -eq 0 ]; then \
+				printf "$(YELLOW)Checking connectivity"; \
+			else \
+				printf "."; \
+			fi; \
+			ATTEMPTS=$$((ATTEMPTS + 1)); \
+			sleep 10; \
+		done && \
+		echo "" && \
+		if [ $$ATTEMPTS -eq $$MAX_ATTEMPTS ]; then \
+			echo "$(YELLOW)⚠️  Instance may still be initializing. Continuing...$(NC)"; \
+		fi && \
+		echo "" && \
+		echo "$(GREEN)🎉 Avamar VE deployment completed successfully!$(NC)" && \
+		echo "" && \
+		echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)" && \
+		echo "$(GREEN)   ACCESS INFORMATION$(NC)" && \
+		echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)" && \
+		echo "" && \
+		echo "$(YELLOW)🌐 AVI Configuration URL:$(NC)" && \
+		echo "   $$(terraform output -raw avi_url)" && \
+		echo "" && \
+		echo "$(YELLOW)🔐 Default Credentials:$(NC)" && \
+		echo "   Username: admin" && \
+		echo "   Password: $$(terraform output -raw avamar_default_password)" && \
+		echo "" && \
+		echo "$(YELLOW)💻 SSH Access:$(NC)" && \
+		echo "   $$(terraform output -raw ssh_command)" && \
+		echo "" && \
+		echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)" \
+	)
+
+destroy-avamar:
+	@echo "$(RED)WARNING: This will destroy all Avamar Virtual Edition resources!$(NC)"
+	@read -p "Are you sure? Type 'yes' to confirm: " confirm && \
+	if [ "$$confirm" = "yes" ]; then \
+		mkdir -p $(LOG_DIR); \
+		echo "$(GREEN)Running Avamar destroy - Full log: $(LOG_DIR)/destroy-avamar.log$(NC)"; \
+		{ \
+			echo "$(YELLOW)Destroying Avamar infrastructure...$(NC)" && \
+			cd $(TERRAFORM_AVAMAR_DIR) && terraform destroy -auto-approve && \
+			echo "$(GREEN)Avamar infrastructure destroyed successfully$(NC)"; \
+		} 2>&1 | tee $(LOG_DIR)/destroy-avamar.log; \
+		grep -E '(ERROR|error|Error|FAILED|failed|Failed|FATAL|fatal|Fatal|WARNING|warning|Warning)' $(LOG_DIR)/destroy-avamar.log > $(LOG_DIR)/destroy-avamar-errors.log 2>/dev/null || echo "No errors detected" > $(LOG_DIR)/destroy-avamar-errors.log; \
+		echo "$(GREEN)Operation complete. Logs saved to $(LOG_DIR)/destroy-avamar.log and $(LOG_DIR)/destroy-avamar-errors.log$(NC)"; \
+	else \
+		echo "$(YELLOW)Destruction cancelled$(NC)"; \
 	fi
 
