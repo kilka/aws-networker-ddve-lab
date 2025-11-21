@@ -48,3 +48,22 @@ variable "windows_security_group_id" {
   description = "Security group ID for Windows client"
   type        = string
 }
+
+# Private IPs for hosts file configuration
+variable "ddve_private_ip" {
+  description = "DDVE private IP for Windows hosts file"
+  type        = string
+  default     = ""
+}
+
+variable "avamar_private_ip" {
+  description = "Avamar private IP for Windows hosts file"
+  type        = string
+  default     = ""
+}
+
+variable "ppdm_private_ip" {
+  description = "PPDM private IP for Windows hosts file"
+  type        = string
+  default     = ""
+}

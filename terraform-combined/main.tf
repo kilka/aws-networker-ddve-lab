@@ -108,6 +108,11 @@ module "clients" {
   deploy_windows_client    = var.deploy_test_clients
   windows_instance_type    = var.windows_client_instance_type
   windows_security_group_id = module.security.windows_client_sg_id
+  
+  # Pass private IPs for Windows shortcuts
+  ddve_private_ip   = module.ddve.private_ip
+  avamar_private_ip = var.deploy_avamar ? module.avamar[0].private_ip : ""
+  ppdm_private_ip   = var.deploy_powerprotect ? module.powerprotect[0].private_ip : ""
 }
 
 # Random ID for S3 bucket

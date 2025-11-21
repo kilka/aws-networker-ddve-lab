@@ -93,7 +93,8 @@ resource "aws_iam_instance_profile" "ddve" {
 
 # S3 Bucket for DDVE Storage
 resource "aws_s3_bucket" "storage" {
-  bucket = var.s3_bucket_name
+  bucket        = var.s3_bucket_name
+  force_destroy = true  # Allow bucket deletion even with objects
 
   tags = {
     Name        = "${var.environment}-ddve-storage"
@@ -101,12 +102,12 @@ resource "aws_s3_bucket" "storage" {
   }
 }
 
-# S3 Bucket Versioning
+# S3 Bucket Versioning - DISABLED for lab environment
 resource "aws_s3_bucket_versioning" "storage" {
   bucket = aws_s3_bucket.storage.id
 
   versioning_configuration {
-    status = "Enabled"
+    status = "Disabled"  # Disabled to prevent cleanup issues
   }
 }
 
@@ -121,21 +122,21 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "storage" {
   }
 }
 
-# S3 Bucket Lifecycle Policy
-resource "aws_s3_bucket_lifecycle_configuration" "storage" {
-  bucket = aws_s3_bucket.storage.id
-
-  rule {
-    id     = "delete-old-versions"
-    status = "Enabled"
-    
-    filter {}
-
-    noncurrent_version_expiration {
-      noncurrent_days = 30
-    }
-  }
-}
+# S3 Bucket Lifecycle Policy - Commented out since versioning is disabled
+# resource "aws_s3_bucket_lifecycle_configuration" "storage" {
+#   bucket = aws_s3_bucket.storage.id
+#
+#   rule {
+#     id     = "delete-old-versions"
+#     status = "Enabled"
+#     
+#     filter {}
+#
+#     noncurrent_version_expiration {
+#       noncurrent_days = 30
+#     }
+#   }
+# }
 
 # DDVE EC2 Instance
 resource "aws_instance" "ddve" {

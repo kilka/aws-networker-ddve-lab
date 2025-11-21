@@ -16,7 +16,7 @@ AWS_REGION ?= us-east-1
 TERRAFORM_DIR := ./terraform-combined
 ANSIBLE_DIR := ./ansible-combined
 KEY_NAME := aws_key
-KEY_PATH := ./$(KEY_NAME)
+KEY_PATH := ./$(KEY_NAME).pem
 LOG_DIR := ./logs
 
 # Logging function
@@ -105,13 +105,81 @@ deploy:
 	$(call run_with_logs,deploy,cd $(TERRAFORM_DIR) && terraform init -upgrade && \
 		terraform apply -auto-approve)
 	@echo ""
-	@echo "$(GREEN)Infrastructure deployed! Run 'make configure' to configure products.$(NC)"
+	@echo "$(GREEN)Infrastructure deployed!$(NC)"
+	@echo ""
+	@echo "$(YELLOW)========================================$(NC)"
+	@echo "$(YELLOW)Windows Jump Box RDP Credentials:$(NC)"
+	@echo "$(YELLOW)========================================$(NC)"
+	@WIN_IP=$$(cd $(TERRAFORM_DIR) && terraform output -raw windows_client_public_ip 2>/dev/null); \
+	WIN_ID=$$(cd $(TERRAFORM_DIR) && terraform output -raw windows_client_instance_id 2>/dev/null); \
+	if [ -n "$$WIN_ID" ] && [ "$$WIN_ID" != "null" ]; then \
+		echo "$(GREEN)IP Address:$(NC) $$WIN_IP"; \
+		echo "$(GREEN)Username:$(NC) Administrator"; \
+		echo -n "$(GREEN)Password:$(NC) "; \
+		echo "Retrieving password (this may take a few minutes if instance just launched)..."; \
+		ATTEMPTS=0; \
+		while [ $$ATTEMPTS -lt 30 ]; do \
+			PASSWORD=$$(aws ec2 get-password-data --instance-id $$WIN_ID --priv-launch-key $(KEY_PATH) --region $(AWS_REGION) 2>/dev/null | jq -r '.PasswordData' 2>/dev/null); \
+			if [ -n "$$PASSWORD" ] && [ "$$PASSWORD" != "" ] && [ "$$PASSWORD" != "null" ]; then \
+				echo "$(GREEN)Password:$(NC) $$PASSWORD"; \
+				break; \
+			fi; \
+			ATTEMPTS=$$((ATTEMPTS + 1)); \
+			if [ $$ATTEMPTS -eq 30 ]; then \
+				echo "$(YELLOW)Password not yet available. Run 'make get-windows-password' in a few minutes$(NC)"; \
+			else \
+				sleep 10; \
+			fi; \
+		done; \
+	else \
+		echo "$(YELLOW)No Windows instance found$(NC)"; \
+	fi
+	@echo "$(YELLOW)========================================$(NC)"
+	@echo ""
+	@echo "$(GREEN)Run 'make configure' to configure products.$(NC)"
 
 # Configure with Ansible
 configure:
 	@echo "$(GREEN)Configuring Data Protection products...$(NC)"
-	$(call run_with_logs,configure,cd $(ANSIBLE_DIR) && \
-		ansible-playbook -i inventory/hosts playbooks/site.yml)
+	@echo "Checking if DDVE has public IP..."
+	@DDVE_ID=$$(cd $(TERRAFORM_DIR) && terraform output -raw ddve_instance_id 2>/dev/null); \
+	DDVE_IP=$$(aws ec2 describe-instances --instance-ids $$DDVE_ID --region $(AWS_REGION) --query 'Reservations[0].Instances[0].PublicIpAddress' --output text 2>/dev/null); \
+	TEMP_EIP=""; \
+	TEMP_SG_RULE=""; \
+	if [ "$$DDVE_IP" = "None" ] || [ -z "$$DDVE_IP" ]; then \
+		echo "$(YELLOW)No public IP found for DDVE. Creating temporary access...$(NC)"; \
+		echo "Allocating temporary Elastic IP..."; \
+		ALLOCATION_ID=$$(aws ec2 allocate-address --region $(AWS_REGION) --query 'AllocationId' --output text); \
+		aws ec2 associate-address --instance-id $$DDVE_ID --allocation-id $$ALLOCATION_ID --region $(AWS_REGION); \
+		sleep 5; \
+		DDVE_IP=$$(aws ec2 describe-addresses --allocation-ids $$ALLOCATION_ID --region $(AWS_REGION) --query 'Addresses[0].PublicIp' --output text); \
+		TEMP_EIP=$$ALLOCATION_ID; \
+		echo "Temporary IP allocated: $$DDVE_IP"; \
+		echo "Adding security group rules for configuration..."; \
+		DDVE_SG=$$(aws ec2 describe-instances --instance-ids $$DDVE_ID --region $(AWS_REGION) --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' --output text); \
+		MY_IP=$$(curl -s https://api.ipify.org); \
+		aws ec2 authorize-security-group-ingress --group-id $$DDVE_SG --protocol tcp --port 443 --cidr $$MY_IP/32 --region $(AWS_REGION) 2>/dev/null || true; \
+		aws ec2 authorize-security-group-ingress --group-id $$DDVE_SG --protocol tcp --port 3009 --cidr $$MY_IP/32 --region $(AWS_REGION) 2>/dev/null || true; \
+		TEMP_SG_RULE="$$DDVE_SG:$$MY_IP"; \
+		sleep 10; \
+	fi; \
+	echo "Configuring DDVE at $$DDVE_IP..."; \
+	mkdir -p $(LOG_DIR); \
+	cd $(ANSIBLE_DIR) && \
+		DDVE_PUBLIC_IP=$$DDVE_IP ansible-playbook -i inventory/hosts playbooks/site.yml 2>&1 | tee $(LOG_DIR)/configure.log; \
+	if [ -n "$$TEMP_EIP" ]; then \
+		echo "$(YELLOW)Cleaning up temporary resources...$(NC)"; \
+		if [ -n "$$TEMP_SG_RULE" ]; then \
+			SG_ID=$${TEMP_SG_RULE%%:*}; \
+			IP_ADDR=$${TEMP_SG_RULE#*:}; \
+			echo "Removing temporary security group rule..."; \
+			aws ec2 revoke-security-group-ingress --group-id $$SG_ID --protocol tcp --port 443 --cidr $$IP_ADDR/32 --region $(AWS_REGION) 2>/dev/null || true; \
+		fi; \
+		echo "Releasing temporary Elastic IP..."; \
+		aws ec2 disassociate-address --association-id $$(aws ec2 describe-addresses --allocation-ids $$TEMP_EIP --region $(AWS_REGION) --query 'Addresses[0].AssociationId' --output text) --region $(AWS_REGION) 2>/dev/null || true; \
+		aws ec2 release-address --allocation-id $$TEMP_EIP --region $(AWS_REGION) 2>/dev/null || true; \
+		echo "$(GREEN)Temporary resources cleaned up$(NC)"; \
+	fi
 
 # Deploy only DDVE
 deploy-ddve:

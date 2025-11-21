@@ -75,3 +75,28 @@ CLAUDE.md
 
 # Old/archived files
 old/
+clean_s3_bucket.py
+ddveawsig85.pdf
+Makefile-combined
+ansible-combined/playbooks/site.yml
+AVE_DDVE_CloudFormation-19.10.0.166/AVE_DDVE_CloudFormation_parameters.json
+AVE_DDVE_CloudFormation-19.10.0.166/AVE_DDVE_CloudFormation_parameters.json.md5
+AVE_DDVE_CloudFormation-19.10.0.166/AVE_DDVE_CloudFormation_parameters.json.sha256
+AVE_DDVE_CloudFormation-19.10.0.166/AVE_DDVE_CloudFormation.json
+AVE_DDVE_CloudFormation-19.10.0.166/AVE_DDVE_CloudFormation.json.md5
+AVE_DDVE_CloudFormation-19.10.0.166/AVE_DDVE_CloudFormation.json.sha256
+terraform-combined/main.tf
+terraform-combined/modules/clients/main.tf
+terraform-combined/modules/clients/variables.tf
+terraform-combined/modules/ddve/main.tf
+terraform-combined/modules/security/main.tf
+terraform-combined/modules/vpc/main.tf
+Makefile-combined
+ansible-combined/playbooks/site.yml
+terraform-combined/main.tf
+terraform-combined/modules/clients/main.tf
+terraform-combined/modules/clients/variables.tf
+terraform-combined/modules/ddve/main.tf
+terraform-combined/modules/security/main.tf
+terraform-combined/modules/vpc/main.tf
+Makefile-combined

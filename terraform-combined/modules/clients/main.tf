@@ -191,24 +191,42 @@ resource "aws_instance" "windows_client" {
     # Create desktop shortcuts for internal systems
     $desktop = [Environment]::GetFolderPath("Desktop")
     
-    # Create URLs for internal systems (will need to be updated with actual IPs)
+    # Create URLs for internal systems - all use HTTPS on default port 443
+    # Using IPs directly since we're not using custom DNS
     @"
 [InternetShortcut]
-URL=https://10.0.1.10
+URL=https://${var.ddve_private_ip != "" ? var.ddve_private_ip : "10.0.1.100"}
 "@ | Out-File "$desktop\DDVE Console.url"
     
     @"
 [InternetShortcut]
-URL=https://10.0.1.11:8443/avi
+URL=https://${var.avamar_private_ip != "" ? var.avamar_private_ip : "10.0.1.101"}
 "@ | Out-File "$desktop\Avamar Console.url"
     
     @"
 [InternetShortcut]
-URL=https://10.0.1.12:14443
+URL=https://${var.ppdm_private_ip != "" ? var.ppdm_private_ip : "10.0.1.102"}
 "@ | Out-File "$desktop\PowerProtect Console.url"
     
-    # Create PuTTY sessions for SSH access
-    Write-Output "Jump box tools installed - use PuTTY for SSH, browsers for web consoles" > C:\jump-box-setup.txt
+    # Create info file with connection details
+    @"
+Data Protection Lab Jump Box Setup Complete!
+============================================
+
+Internal systems accessible at:
+- DDVE:    ${var.ddve_private_ip != "" ? "https://${var.ddve_private_ip}" : "Not deployed"}
+- Avamar:  ${var.avamar_private_ip != "" ? "https://${var.avamar_private_ip}" : "Not deployed"}
+- PPDM:    ${var.ppdm_private_ip != "" ? "https://${var.ppdm_private_ip}" : "Not deployed"}  
+- Linux:   ${var.deploy_linux_client ? "ssh ${aws_instance.linux_client[0].private_ip}" : "Not deployed"}
+
+Tools Installed:
+- PuTTY for SSH access
+- Chrome & Firefox browsers for web consoles
+- AWS CLI for management
+
+Use the desktop shortcuts to access the web consoles.
+All services use HTTPS on port 443.
+"@ | Out-File "$desktop\Lab-Connection-Info.txt"
     
     # Log completion
     "Windows client initialization complete at $(Get-Date)" | Out-File C:\user-data.log
